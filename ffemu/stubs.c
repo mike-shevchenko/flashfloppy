@@ -961,13 +961,14 @@ bool_t floppy_handle(void)
     return rc;
 }
 
-void emu_fdd_status(unsigned int *cyl, unsigned int *side, int *sel,
-                    const char **name)
+void emu_fdd_status(int *apple2, unsigned int *cyl, unsigned int *side,
+                    int *sel, const char **name)
 {
     struct track_info ti;
 
     /* From another thread, which may see a mount half done. */
     floppy_get_track(&ti);
+    *apple2 = apple2_mode;
     *cyl = ti.cyl;
     *side = ti.side;
     *sel = ti.sel;

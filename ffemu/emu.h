@@ -85,6 +85,14 @@ extern volatile int emu_in_rotary;
 extern volatile unsigned int emu_in_fdd;
 /* Counts the STEP pulses sent. */
 extern volatile unsigned int emu_in_step;
+/* The kind of controller on the other side of the cable, which decides what
+ * the signals above drive: STEP and DIR, or the Apple2 stepper phases, on
+ * the pins of the standard wiring and phase 1 on pin 32 as well, as a cable
+ * made for Oleg Odintsov's Gotek firmware 307 (gotek-sa390 at
+ * https://svn.code.sf.net/p/agat-hardware/code) too has it. */
+#define EMU_FDD_TYPE_step_dir 0
+#define EMU_FDD_TYPE_apple2   1
+extern volatile int emu_fdd_type;
 
 /* Front-panel outputs, read by the user interface. */
 /* Counts the pulses sent to the speaker. */
@@ -111,10 +119,11 @@ void emu_irq_vector(unsigned int nr);
 const char *emu_board_name(void);
 const char *emu_fw_version(void);
 const char *emu_fw_target(void);
-/* The drive as the firmware sees it: the cylinder of the head, the side,
- * whether it is selected, and the image mounted, or NULL. */
-void emu_fdd_status(unsigned int *cyl, unsigned int *side, int *sel,
-                    const char **image);
+/* The drive as the firmware sees it: whether the firmware is in its Apple2
+ * mode, the cylinder of the head, the side, whether it is selected, and the
+ * image mounted, or NULL. */
+void emu_fdd_status(int *apple2, unsigned int *cyl, unsigned int *side,
+                    int *sel, const char **image);
 unsigned int emu_arena_used(void);
 unsigned int emu_arena_size(void);
 
