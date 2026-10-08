@@ -16,11 +16,17 @@
 #define sampleclk_stk(x) ((x) * (SAMPLECLK_MHZ / STK_MHZ))
 #define stk_sampleclk(x) ((x) / (SAMPLECLK_MHZ / STK_MHZ))
 
-#if TARGET == TARGET_apple2
-#define WDATA_TOGGLE TRUE
+/* Apple2 mode: the host steps the head with four stepper phases in place of
+ * STEP and DIR, WDATA toggles at each flux reversal, WRPROT is inverted, and
+ * HFE is the only image format. The apple2 target (and its bootloader) is
+ * always in this mode. */
+#if (TARGET == TARGET_apple2) || defined(APPLE2_BOOTLOADER)
+#define apple2_mode TRUE
 #else
-#define WDATA_TOGGLE FALSE
+#define apple2_mode FALSE
 #endif
+
+#define WDATA_TOGGLE apple2_mode
 
 #define FINTF_SHUGART     0
 #define FINTF_IBMPC       1
@@ -296,7 +302,8 @@ static inline unsigned int im_nphys_cyls(struct image *im)
 static inline bool_t in_da_mode(struct image *im, unsigned int cyl)
 {
 #if TARGET == TARGET_shugart
-    return cyl >= max_t(unsigned int, DA_FIRST_CYL, im_nphys_cyls(im));
+    return !apple2_mode
+        && (cyl >= max_t(unsigned int, DA_FIRST_CYL, im_nphys_cyls(im)));
 #else
     return FALSE;
 #endif

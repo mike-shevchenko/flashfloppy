@@ -90,6 +90,8 @@ struct exti_irq {
     uint8_t irq, pri;
     uint16_t pr_mask; /* != 0: irq- and exti-pending flags are cleared */
 };
+/* The board code provides exti_irqs[] and exti_irq_wanted(), which skips
+ * the entries that the floppy interface mode in use has no need of. */
 
 #if TARGET == TARGET_quickdisk
 #include "gotek/quickdisk.c"
@@ -106,6 +108,8 @@ static void floppy_init_irqs(void)
 
     /* Configure physical interface interrupts. */
     for (i = 0, e = exti_irqs; i < ARRAY_SIZE(exti_irqs); i++, e++) {
+        if (!exti_irq_wanted(e))
+            continue;
         IRQx_set_prio(e->irq, e->pri);
         if (e->pr_mask != 0) {
             /* Do not trigger an initial interrupt on this line. Clear EXTI_PR
@@ -122,7 +126,8 @@ static void floppy_init_irqs(void)
 
     /* Enable physical interface interrupts. */
     for (i = 0, e = exti_irqs; i < ARRAY_SIZE(exti_irqs); i++, e++) {
-        IRQx_enable(e->irq);
+        if (exti_irq_wanted(e))
+            IRQx_enable(e->irq);
     }
 }
 
@@ -262,11 +267,7 @@ static void timer_dma_init(void)
     tim_rdata->ccmr1 = (TIM_CCMR1_CC2S(TIM_CCS_OUTPUT) |
                         TIM_CCMR1_OC2M(TIM_OCM_PWM1));
     tim_rdata->ccer = TIM_CCER_CC2E | ((O_TRUE==0) ? TIM_CCER_CC2P : 0);
-#if TARGET == TARGET_apple2
-    tim_rdata->ccr2 = sampleclk_ns(1000);
-#else
-    tim_rdata->ccr2 = sampleclk_ns(400);
-#endif
+    tim_rdata->ccr2 = sampleclk_ns(apple2_mode ? 1000 : 400);
     tim_rdata->dier = TIM_DIER_UDE;
     tim_rdata->cr2 = 0;
 

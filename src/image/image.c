@@ -103,7 +103,10 @@ bool_t image_valid(FILINFO *fp)
 
     /* Check valid extension. */
     filename_extension(fp->fname, ext, sizeof(ext));
-    if ((TARGET == TARGET_shugart) && !strcmp(ext, "adf")) {
+    if (apple2_mode) {
+        /* HFE is the only Apple2 format. */
+        return !strcmp(ext, "hfe");
+    } else if ((TARGET == TARGET_shugart) && !strcmp(ext, "adf")) {
         return (ff_cfg.host == HOST_acorn) || !(fp->fsize % (2*11*512));
     } else {
         const struct image_type *type;
@@ -164,6 +167,13 @@ void image_open(struct image *im, struct slot *slot, DWORD *cltbl)
     /* Extract filename extension (if available). */
     memcpy(ext, slot->type, sizeof(slot->type));
     ext[sizeof(slot->type)] = '\0';
+
+    if (apple2_mode) {
+        /* HFE is the only Apple2 format. */
+        if (!try_handler(im, slot, cltbl, &hfe_image_handler))
+            F_die(FR_BAD_IMAGE);
+        return;
+    }
 
     /* Use the extension as a hint to the correct image handler. */
     for (type = &image_type[0]; type->handler != NULL; type++)
