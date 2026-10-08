@@ -85,6 +85,7 @@ enum {
     CP_off,       /* light gray on dark gray: a window with nothing to show */
     CP_scroll,    /* blue on cyan: a scroll bar */
     CP_raw,       /* bright magenta on blue: flash bytes FF.CFG cannot say */
+    CP_bar_crop,  /* bright green on light gray: the status line is cut */
     CP_dlg_hot,   /* bright yellow on light gray: a hotkey in a dialog */
     CP_cluster,   /* black on cyan: radio buttons and check boxes */
     CP_cluster_hi, /* bright white on cyan: the one of them in focus */
@@ -891,6 +892,7 @@ static void draw_log(int y, int x, int w, int h)
     static char tail[8192];
     unsigned int head = log_head, len, i, nr_lines = 0;
     int rows = h - 2, row;
+    bool truncated;
     char *p, *line;
 
     if ((rows < 1) || (w < 8))
@@ -900,6 +902,7 @@ static void draw_log(int y, int x, int w, int h)
     path_label(y + h - 1, x, w, log_file_name);
 
     len = (head < sizeof(tail) - 1) ? head : sizeof(tail) - 1;
+    truncated = len < head; /* older output than the tail holds */
     for (i = 0; i < len; i++)
         tail[i] = log_ring[(head - len + i) % LOG_SIZE];
     tail[len] = '\0';
@@ -912,7 +915,7 @@ static void draw_log(int y, int x, int w, int h)
         if ((p[-1] == '\n') && (++nr_lines == (unsigned int)rows))
             break;
     }
-    scroll_marks(y, x, h, (p > tail) || (len < head), false);
+    scroll_marks(y, x, h, (p > tail) || truncated, false);
 
     for (row = 0, line = p; (row < rows) && (line != NULL); row++) {
         char *end = strchr(line, '\n');
@@ -943,7 +946,7 @@ static int hotkey(int x, const char *key, const char *what)
             "%c", key[i]);
     x += strlen(key) + 2;
     put(LINES - 1, x, COLS, COLOR_PAIR(CP_bar), "%s", what);
-    return x + strlen(what) + 2;
+    return x + strlen(what) + 1;
 }
 
 /* The menu bar at the top, and the status line with its hotkeys at the
@@ -983,16 +986,20 @@ static void draw_bars(void)
         keys[2*i + 1] = '/';
     }
     keys[2*STYLE_nr - 1] = '\0';
-    x = hotkey(x, keys, "Display rendering");
+    x = hotkey(x, keys, "Rendering");
+    x = hotkey(x, "Ctrl+L", "Refresh");
     /* Shift is a key too; the brackets say that it is optional. */
     put(LINES - 1, x + 1, COLS, COLOR_PAIR(CP_bar), "[");
     put(LINES - 1, x + 2, COLS, COLOR_PAIR(CP_hotkey), "Shift");
     put(LINES - 1, x + 7, COLS, COLOR_PAIR(CP_bar), "+]");
-    x = hotkey(x + 8, COLOR_KEYS, "Display color");
+    x = hotkey(x + 8, COLOR_KEYS, "Color");
     snprintf(keys, sizeof(keys), "%c", FLASH_KEY);
     x = hotkey(x, keys, "Flash mem");
     snprintf(keys, sizeof(keys), "%c", DISPLAY_KEY);
-    hotkey(x, keys, "Display type");
+    x = hotkey(x, keys, "Display");
+    /* Cut short by a narrow window: a mark in the last column. */
+    if (x - 1 > COLS)
+        put(LINES - 1, COLS - 1, 1, BRIGHT(CP_bar_crop), ">");
 }
 
 /* The first line that the FF.CFG window shows, and how many it shows:
@@ -1492,6 +1499,8 @@ static bool style_key(int key)
         return false;
     config.style = p - STYLE_KEYS + 1;
     rc_save();
+    /* The display's cells change size: repaint everything. */
+    clearok(stdscr, TRUE);
     return true;
 }
 
@@ -1889,9 +1898,15 @@ static void fd_value(const char *opt, char *buf, size_t size)
     }
 }
 
+/* What the dialog edits, above its columns. */
+static const char * const fd_explanation[2] = {
+    "Here are settings stored in the device flash memory.",
+    "The values are overwritten by FF.CFG on start."
+};
+
 static void fd_layout(void)
 {
-    int col_y[3] = { 2, 2, 2 }, col_x[3], h = 0, i, n;
+    int col_y[3] = { 5, 5, 5 }, col_x[3], h = 0, i, n;
     char label[40];
     struct fview *v;
 
@@ -2140,6 +2155,9 @@ static void draw_flash_dialog(void)
         return;
     }
     dialog_box(fd_w, fd_h, "Flash mem", &y0, &x0);
+    for (i = 0; i < (int)ARRAY_SIZE(fd_explanation); i++)
+        put(y0 + 2 + i, x0 + 2, fd_w - 4, COLOR_PAIR(CP_dialog), "%s",
+            fd_explanation[i]);
     for (i = 0; i < (int)FD_NR; i++) {
         struct fview *v = &fviews[i];
         bool focused = (i == fd_focus);
@@ -2218,6 +2236,13 @@ static void handle_key(int key)
 
     if ((key == '\r') || (key == KEY_ENTER))
         key = '\n';
+
+    /* Ctrl+L, or the window resized: the next refresh repaints everything,
+     * for a terminal that has lost part of the screen. */
+    if ((key == ('L' & 0x1f)) || (key == KEY_RESIZE)) {
+        clearok(stdscr, TRUE);
+        return;
+    }
 
     if (dialog == DLG_flash) {
         fd_key(key);
@@ -2339,6 +2364,7 @@ static void *tui_thread(void *unused)
         init_pair(CP_off, COLOR_WHITE, (COLORS >= 16) ? 8 : COLOR_BLACK);
         init_pair(CP_scroll, COLOR_BLUE, COLOR_CYAN);
         init_pair(CP_raw, COLOR_MAGENTA, COLOR_BLUE);
+        init_pair(CP_bar_crop, COLOR_GREEN, COLOR_WHITE);
         init_pair(CP_dlg_hot, COLOR_YELLOW, COLOR_WHITE);
         init_pair(CP_cluster, COLOR_BLACK, COLOR_CYAN);
         init_pair(CP_cluster_hi, COLOR_WHITE, COLOR_CYAN);
