@@ -86,6 +86,7 @@ DEFINE_IRQ(dma_rdata_irq, "IRQ_rdata_dma");
  * interrupt. */
 static struct timer step_timer;
 static void POLL_step(void *unused);
+uint8_t apple2_phases;
 void IRQ_28(void) __attribute__((alias("IRQ_STEP_changed"))); /* TMR2 */
 #define STEP_IRQ 28
 
@@ -465,7 +466,7 @@ static void POLL_step(void *unused)
 
     /* Bail if drive not selected. */
     if (idr_a & m(pin_sel0)) {
-        _pha = 0;
+        _pha = apple2_phases = 0;
         goto out;
     }
 
@@ -473,6 +474,7 @@ static void POLL_step(void *unused)
     pha = _pha;
     _pha = phase_bits(idr_a, idr_b, apple2_alt_pins);
     pha &= _pha;
+    apple2_phases = pha;
 
     /* Do nothing while we're mid-step. */
     if (drv->step.state & STEP_active)

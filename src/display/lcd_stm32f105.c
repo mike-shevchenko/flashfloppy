@@ -333,8 +333,11 @@ static unsigned int lcd_prep_buffer(void)
     p = (_bl && row < ARRAY_SIZE(text)) ? text[row] : NULL;
 
     emit8(&q, CMD_SETDDRADDR | row_offs[i2c_row], 0);
-    for (i = 0; i < lcd_columns; i++)
-        emit8(&q, p ? *p++ : ' ', _RS);
+    for (i = 0; i < lcd_columns; i++) {
+        uint8_t c = p ? *p++ : ' ';
+        /* The OLED's phase spinner, for which the LCD has no glyph. */
+        emit8(&q, (c & 0x80) ? ' ' : c, _RS);
+    }
 
     i2c_row++;
 
@@ -738,6 +741,69 @@ fail:
     return FALSE;
 }
 
+/* The stepper phase spinner of the Apple2 mode: a square over two cells
+ * whose sides are the phases, 0 the bottom, 1 the left, 2 the top and 3
+ * the right, drawn for a character 0x80 plus the phases on. The squares,
+ * one per font, a row of pixels per line, top down, 1 for a pixel. */
+static const uint16_t oled_spinner_11[] = {
+    0b00111111100,
+    0b00111111100,
+    0b11000000011,
+    0b11000000011,
+    0b11000000011,
+    0b11000000011,
+    0b11000000011,
+    0b11000000011,
+    0b11000000011,
+    0b00111111100,
+    0b00111111100,
+};
+#ifdef font_extra
+static const uint16_t oled_spinner_14[] = {
+    0b00000111100000,
+    0b00011111111000,
+    0b00001100110000,
+    0b01000000000010,
+    0b01100000000110,
+    0b11100000000111,
+    0b11000000000011,
+    0b11000000000011,
+    0b11100000000111,
+    0b01100000000110,
+    0b01000000000100,
+    0b00001100110000,
+    0b00011111111000,
+    0b00000111100000,
+};
+#endif
+
+/* Draws the spinner for @phases into the two cells of @w columns at @q,
+ * from the @n rows of @glyph, a pixel of margin above: a pixel belongs to
+ * the side whose triangle, cut by the diagonals, holds it. */
+static void oled_spinner(uint8_t *q, unsigned int w, unsigned int phases,
+                         const uint16_t *glyph, unsigned int n)
+{
+    unsigned int i, x, y, side;
+    uint16_t out;
+
+    /* Over both cells: a column outside the glyph, whose x is out of range
+     * as an unsigned, comes out blank. */
+    for (i = 0; i < 2*w; i++) {
+        x = i - (2*w - n) / 2;
+        out = 0;
+        for (y = 0; (x < n) && (y < n); y++) {
+            if (!(glyph[y] & (1u << (n-1-x))))
+                continue;
+            side = (y < x) ? ((y < n-1-x) ? 2 : 3) : ((y > n-1-x) ? 0 : 1);
+            if (phases & (1u<<side))
+                out |= 1u<<y;
+        }
+        out <<= 1;
+        q[i] = out;
+        q[128+i] = out >> 8;
+    }
+}
+
 extern const uint8_t oled_font_6x13[];
 static void oled_convert_text_row_6x13(char *pc)
 {
@@ -750,6 +816,13 @@ static void oled_convert_text_row_6x13(char *pc)
     q++;
 
     for (i = 0; i < lcd_columns; i++) {
+        if ((uint8_t)*pc >= 0x80) {
+            oled_spinner(q, w, *pc & 0xf, oled_spinner_11, 11);
+            pc += 2;
+            q += 2*w;
+            i++;
+            continue;
+        }
         if ((c = *pc++ - 0x20) > 0x5e)
             c = '.' - 0x20;
         p = &oled_font_6x13[c * w * 2];
@@ -773,6 +846,13 @@ static void oled_convert_text_row_8x16(char *pc)
     const unsigned int w = 8;
 
     for (i = 0; i < lcd_columns; i++) {
+        if ((uint8_t)*pc >= 0x80) {
+            oled_spinner(q, w, *pc & 0xf, oled_spinner_14, 14);
+            pc += 2;
+            q += 2*w;
+            i++;
+            continue;
+        }
         if ((c = *pc++ - 0x20) > 0x5e)
             c = '.' - 0x20;
         p = &oled_font_8x16[c * w * 2];
