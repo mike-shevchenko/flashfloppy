@@ -145,6 +145,18 @@ struct dsk_image {
     uint8_t rev;
 };
 
+struct nib_image {
+    uint32_t trk_off;
+    uint16_t trk_pos;
+    bool_t nic;
+    struct {
+        uint32_t start; /* stream bit where the write began */
+        uint16_t nr; /* nibbles decoded so far */
+        uint8_t acc, nbits; /* the nibble being decoded */
+        bool_t lost; /* more nibbles than the staging buffer holds */
+    } write;
+};
+
 struct directaccess {
     struct da_status_sector dass;
     int32_t decode_pos;
@@ -213,6 +225,7 @@ struct image {
         struct qd_image qd;
         struct img_image img;
         struct dsk_image dsk;
+        struct nib_image nib;
         struct directaccess da;
     };
 
@@ -239,6 +252,13 @@ extern const struct image_type {
     char ext[8];
     const struct image_handler *handler;
 } image_type[];
+
+/* The types served in Apple2 mode. */
+#if TARGET == TARGET_apple2
+#define apple2_image_type image_type
+#else
+extern const struct image_type apple2_image_type[];
+#endif
 
 /* Is given file valid to open as an image? */
 bool_t image_valid(FILINFO *fp);
