@@ -26,6 +26,32 @@
 #endif
 #define pin_pha2    0 /* PB0 */
 #define pin_pha3    1 /* PA1 */
+/* The wiring of Oleg Odintsov's Gotek firmware 307 for the Agat (gotek-sa390
+ * at https://svn.code.sf.net/p/agat-hardware/code) has phases 0 and 1
+ * elsewhere: on the MISO pad of the unfitted U8 (PA10 on QFN32, where the
+ * standard wiring has it too) and on pin 32, SIDE. Found at boot like the
+ * standard wiring. */
+#define pin_alt_pha0 14 /* PB14 - (aka U8 pin 2, MISO) */
+#define pin_alt_pha1  4 /* PB4  - (aka SIDE) */
+static bool_t apple2_alt_pins;
+
+/* The phases on, as bits 0-3, from latched port inputs; @alt selects the
+ * wiring. The phases are active high. */
+static unsigned int phase_bits(uint16_t idr_a, uint16_t idr_b, bool_t alt)
+{
+    unsigned int pha = ((idr_b << (2-pin_pha2)) & 4)
+        | ((idr_a << (3-pin_pha3)) & 8);
+
+    if (!alt)
+        return pha | ((idr_a >> pin_pha0) & 1) | ((idr_a >> (pin_pha1-1)) & 2);
+
+    pha |= (idr_b >> (pin_alt_pha1-1)) & 2;
+    if (mcu_package == MCU_QFN32)
+        pha |= (idr_a >> 10) & 1; /* PA10 */
+    else
+        pha |= (idr_b >> pin_alt_pha0) & 1;
+    return pha;
+}
 #define pin_sel0    0 /* PA0 */
 #define pin_sel1    3 /* PA3 */
 static uint8_t pin_wgate = 9; /* PB9 */
@@ -67,6 +93,7 @@ void IRQ_28(void) __attribute__((alias("IRQ_STEP_changed"))); /* TMR2 */
 void IRQ_6(void) __attribute__((alias("IRQ_SELA_changed"))); /* EXTI0 */
 void IRQ_7(void) __attribute__((alias("IRQ_WGATE_rotary"))); /* EXTI1 */
 void IRQ_10(void) __attribute__((alias("IRQ_SIDE_changed"))); /* EXTI4 */
+#define SIDE_IRQ 10
 void IRQ_23(void) __attribute__((alias("IRQ_WGATE_rotary"))); /* EXTI9_5 */
 void IRQ_40(void) __attribute__((alias("IRQ_MOTOR_CHGRST_rotary"))); /* EXTI15_10 */
 void IRQ_27(void) __attribute__((alias("IRQ_wdata_capture"))); /* TMR1_CC */
@@ -77,13 +104,13 @@ static const struct exti_irq exti_irqs[] = {
     /* SELA */ {  6, FLOPPY_IRQ_SEL_PRI, 0 }, 
     /* STEP */ { STEP_IRQ, FLOPPY_IRQ_STEP_PRI, m(2) /* dummy */ },
     /* WGATE */ {  7, FLOPPY_IRQ_WGATE_PRI, 0 },
-    /* SIDE */ { 10, TIMER_IRQ_PRI, 0 }, 
+    /* SIDE */ { SIDE_IRQ, TIMER_IRQ_PRI, 0 }, 
     /* WGATE */ { 23, FLOPPY_IRQ_WGATE_PRI, 0 },
     /* MTR/CHGRST */ { 40, TIMER_IRQ_PRI, 0 }
 };
 
 /* WDATA toggles are captured in Apple2 mode only, and STEP is a stepper
- * phase there. */
+ * phase there, as SIDE is in the 307 wiring. */
 static bool_t exti_irq_wanted(const struct exti_irq *e)
 {
     switch (e->irq) {
@@ -91,6 +118,8 @@ static bool_t exti_irq_wanted(const struct exti_irq *e)
         return apple2_mode;
     case STEP_IRQ:
         return !apple2_mode;
+    case SIDE_IRQ:
+        return !apple2_alt_pins;
     }
     return TRUE;
 }
@@ -131,32 +160,45 @@ bool_t apple2_mode;
  * the JC strap and the KC30 Select button. So we are on an Apple2 if at
  * least three of the four phase inputs are low in at least a quarter of
  * the samples: a host at rest may hold one phase on, and a Shugart host
- * leaves at most DIR low. */
+ * leaves at most DIR low. The 307 wiring is tried when the standard one
+ * does not match, on the standard boards only: on the enhanced ones PB14
+ * is the SD card's MISO. */
 void apple2_detect(unsigned int ms)
 {
     time_t t = time_now();
-    unsigned int i, low[4] = { 0 };
+    unsigned int i, j, nr, *low, lows[2][4] = { { 0 } };
+    unsigned int nr_sets = (board_id == BRDREV_Gotek_standard) ? 2 : 1, set;
 
     for (i = 0; i < ms; i++) {
         uint16_t idr_a = gpioa->idr, idr_b = gpiob->idr;
-        low[0] += !(idr_a & m(pin_pha0));
-        low[1] += !(idr_a & m(pin_pha1));
-        low[2] += !(idr_b & m(pin_pha2));
-        low[3] += !(idr_a & m(pin_pha3));
+        for (set = 0; set < nr_sets; set++) {
+            unsigned int high = phase_bits(idr_a, idr_b, set);
+            for (low = lows[set], j = 0; j < 4; j++, high >>= 1)
+                low[j] += !(high & 1);
+        }
         delay_from(t, time_ms(i + 1));
     }
 
-    apple2_mode = ((low[0] >= ms/4) + (low[1] >= ms/4)
-                   + (low[2] >= ms/4) + (low[3] >= ms/4)) >= 3;
+    apple2_mode = FALSE;
+    for (set = 0; !apple2_mode && (set < nr_sets); set++) {
+        low = lows[set];
+        for (nr = 0, j = 0; j < 4; j++)
+            nr += (low[j] >= ms/4);
+        apple2_mode = (nr >= 3);
+    }
+    apple2_alt_pins = apple2_mode && (set == 2);
+    if (!apple2_mode)
+        low = lows[0];
 
 #if LEVEL == LEVEL_debug
     /* Phases 0 and 1 are on the KC30 rotary pins: no encoder then. */
-    if (apple2_mode)
+    if (apple2_mode && !apple2_alt_pins)
         has_kc30_header = 0;
 #endif
 
-    printk("Apple2 %s (%u/%u/%u/%u %ums)\n",
-           apple2_mode ? "on" : "off", low[0], low[1], low[2], low[3], ms);
+    printk("Apple2 %s%s (%u/%u/%u/%u %ums)\n",
+           apple2_mode ? "on" : "off", apple2_alt_pins ? " (fw307)" : "",
+           low[0], low[1], low[2], low[3], ms);
 }
 
 #endif
@@ -245,9 +287,17 @@ static void board_floppy_init(void)
         pin_wgate = 1; /* PB1 */
     }
 
-    if (apple2_mode) {
+    if (apple2_mode && !apple2_alt_pins) {
         gpio_configure_pin(gpioa, pin_pha0,  GPI_bus);
         gpio_configure_pin(gpioa, pin_pha1,  GPI_bus);
+    } else if (apple2_mode) {
+        /* Phase 1 is on pin_side, configured below. */
+        if (mcu_package == MCU_QFN32)
+            gpio_configure_pin(gpioa, 10,  GPI_bus);
+        else
+            gpio_configure_pin(gpiob, pin_alt_pha0,  GPI_bus);
+    }
+    if (apple2_mode) {
         gpio_configure_pin(gpiob, pin_pha2,  GPI_bus);
         gpio_configure_pin(gpioa, pin_pha3,  GPI_bus);
         timer_init(&step_timer, POLL_step, NULL);
@@ -280,7 +330,8 @@ static void board_floppy_init(void)
 
     exti->rtsr = 0xffff;
     exti->ftsr = 0xffff;
-    exti->imr = m(pin_wgate) | m(pin_side) | m(pin_sel0);
+    exti->imr = m(pin_wgate) | m(pin_sel0)
+        | (apple2_alt_pins ? 0 : m(pin_side));
 
     gpiob_setreset = (uint32_t)(uintptr_t)&gpiob->bsrr;
 }
@@ -420,10 +471,7 @@ static void POLL_step(void *unused)
 
     /* Debounce the phase signals. */
     pha = _pha;
-    _pha = ((idr_a >> pin_pha0) & 1)
-        | ((idr_a >> (pin_pha1-1)) & 2)
-        | ((idr_b << (2-pin_pha2)) & 4)
-        | ((idr_a << (3-pin_pha3)) & 8);
+    _pha = phase_bits(idr_a, idr_b, apple2_alt_pins);
     pha &= _pha;
 
     /* Do nothing while we're mid-step. */
