@@ -269,6 +269,10 @@ extern const struct image_type apple2_image_type[];
 
 /* Is given file valid to open as an image? */
 bool_t image_valid(FILINFO *fp);
+/* Counts the files it refused by size for the mode in use; logged and
+ * cleared at the end of a folder scan. */
+extern unsigned int image_nr_hidden;
+void image_log_hidden(void);
 
 /* Open specified image file on mass storage device. */
 void image_open(struct image *im, struct slot *slot, DWORD *cltbl);
