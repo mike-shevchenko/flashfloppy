@@ -1781,6 +1781,9 @@ static struct fview {
     { FV_radio, 0, "oled-~f~ont", "oled-font",
       "OLED font: narrow 6x13, or wide 8x16",
       { "6x13", "8x16" }, false, true },
+    { FV_radio, 0, "s~h~ow-filename-ext", "show-filename-ext",
+      "Whether to show floppy filename extensions",
+      { "no", "yes", "auto" }, false, true },
     { FV_input, 0, "~d~isplay-order", "display-order",
       "Rows top down: content 0-3, 7 for blank, d for double height; or "
       "default", { NULL }, false, false },
@@ -1848,7 +1851,8 @@ static struct fview {
 
 /* The options that the dialog edits, and their values when it opened. */
 static const char * const fd_opts[] = {
-    "display-type", "oled-font", "display-order", "display-off-secs",
+    "display-type", "oled-font", "show-filename-ext", "display-order",
+    "display-off-secs",
     "display-scroll-rate", "display-scroll-pause", "nav-scroll-rate",
     "nav-scroll-pause", "nav-mode", "folder-sort", "sort-priority",
     "nav-loop", "autoselect-file-secs", "autoselect-folder-secs",
