@@ -239,8 +239,10 @@ void floppy_set_fintf_mode(void)
     if (mode == FINTF_JC) {
         /* Jumper JC selects default floppy interface configuration:
          *   - No Jumper: Shugart
-         *   - Jumpered:  IBM PC */
-        mode = board_jc_strapped() ? FINTF_IBMPC : FINTF_SHUGART;
+         *   - Jumpered:  IBM PC
+         * Not read in Apple2 mode, where its QFN32 pin is a phase. */
+        mode = (!apple2_mode && board_jc_strapped())
+            ? FINTF_IBMPC : FINTF_SHUGART;
     }
 
     ASSERT(mode < ARRAY_SIZE(fintfs));
@@ -553,7 +555,9 @@ void floppy_set_cyl(uint8_t unit, uint8_t cyl)
 void floppy_get_track(struct track_info *ti)
 {
     bool_t active = dma_wr != NULL;
-    ti->cyl = drive.cyl;
+    /* An Apple2 host steps in half tracks: show the track of the image. */
+    ti->cyl = !apple2_mode ? drive.cyl
+        : drive.cyl / (active ? (drive.image->step ?: 1) : 2);
     ti->side = active ? drive.head & (drive.image->nr_sides - 1) : 0;
     ti->sel = drive.sel;
     ti->writing = (active && dma_wr->state != DMA_inactive);

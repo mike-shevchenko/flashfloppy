@@ -286,6 +286,8 @@ void board_init(void)
 
     }
 
+    /* The shugart target detects the mode after this, with these pulled up
+     * like every other input it does not use. */
     if (apple2_mode) {
 #if LEVEL != LEVEL_debug
         /* Normal build: Two phases use UART RX/TX. */

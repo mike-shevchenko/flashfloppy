@@ -19,9 +19,14 @@
 /* Apple2 mode: the host steps the head with four stepper phases in place of
  * STEP and DIR, WDATA toggles at each flux reversal, WRPROT is inverted, and
  * HFE is the only image format. The apple2 target (and its bootloader) is
- * always in this mode. */
+ * always in this mode; the shugart target detects it at boot. */
 #if (TARGET == TARGET_apple2) || defined(APPLE2_BOOTLOADER)
 #define apple2_mode TRUE
+#elif TARGET == TARGET_shugart
+extern bool_t apple2_mode;
+/* Watches the phase inputs for @ms milliseconds, and sets apple2_mode if an
+ * Apple2 host is driving them. Takes the place of the 5v settle delay. */
+void apple2_detect(unsigned int ms);
 #else
 #define apple2_mode FALSE
 #endif

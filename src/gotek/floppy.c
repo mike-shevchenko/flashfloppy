@@ -121,6 +121,46 @@ static void dma_rd_set_active(bool_t active)
 }
 #endif
 
+#if TARGET == TARGET_shugart
+
+bool_t apple2_mode;
+
+/* An Apple2 host holds all four stepper phases low at power-on, and raises
+ * at most two of them while it seeks. A Shugart host leaves PA9 and PA10
+ * high: nothing but the pull-up is on them, except on QFN32, where they are
+ * the JC strap and the KC30 Select button. So we are on an Apple2 if at
+ * least three of the four phase inputs are low in at least a quarter of
+ * the samples: a host at rest may hold one phase on, and a Shugart host
+ * leaves at most DIR low. */
+void apple2_detect(unsigned int ms)
+{
+    time_t t = time_now();
+    unsigned int i, low[4] = { 0 };
+
+    for (i = 0; i < ms; i++) {
+        uint16_t idr_a = gpioa->idr, idr_b = gpiob->idr;
+        low[0] += !(idr_a & m(pin_pha0));
+        low[1] += !(idr_a & m(pin_pha1));
+        low[2] += !(idr_b & m(pin_pha2));
+        low[3] += !(idr_a & m(pin_pha3));
+        delay_from(t, time_ms(i + 1));
+    }
+
+    apple2_mode = ((low[0] >= ms/4) + (low[1] >= ms/4)
+                   + (low[2] >= ms/4) + (low[3] >= ms/4)) >= 3;
+
+#if LEVEL == LEVEL_debug
+    /* Phases 0 and 1 are on the KC30 rotary pins: no encoder then. */
+    if (apple2_mode)
+        has_kc30_header = 0;
+#endif
+
+    printk("Apple2 %s (%u/%u/%u/%u %ums)\n",
+           apple2_mode ? "on" : "off", low[0], low[1], low[2], low[3], ms);
+}
+
+#endif
+
 bool_t floppy_ribbon_is_reversed(void)
 {
     time_t t_start;
