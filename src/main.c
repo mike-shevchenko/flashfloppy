@@ -49,6 +49,7 @@ static struct {
     uint8_t hxc_mode:1;
     uint8_t ejected:1;
     uint8_t ima_ej_flag:1; /* "\\EJ" flag in IMAGE_A.CFG? */
+    uint8_t slot_show_ext:1; /* image's extension shown with its name */
     /* FF.CFG values which override HXCSDFE.CFG. */
     uint8_t ffcfg_has_step_volume:1;
     uint8_t ffcfg_has_display_off_secs:1;
@@ -141,6 +142,16 @@ static bool_t slot_type(const char *str)
     return !strcmp(cfg.slot.type, str);
 }
 
+/* The slot name as the display shows it: with the file extension when
+ * show-filename-ext asks for it, see update_slot_show_ext(). */
+static char disp_name[sizeof(cfg.slot.name) + sizeof(cfg.slot.type) + 1];
+static void update_disp_name(void)
+{
+    snprintf(disp_name, sizeof(disp_name), "%s%s%s", cfg.slot.name,
+             cfg.slot_show_ext ? "." : "",
+             cfg.slot_show_ext ? cfg.slot.type : "");
+}
+
 #define wp_column ((lcd_columns > 16) ? 8 : 7)
 
 /* Scroll long filename. */
@@ -151,10 +162,11 @@ static struct {
 static void lcd_scroll_init(uint16_t pause, uint16_t rate)
 {
     int diff = lcd_scroll.off - lcd_scroll.end;
+    update_disp_name();
     lcd_scroll.pause = pause;
     lcd_scroll.rate = rate;
     lcd_scroll.end = max_t(
-        int, strnlen(cfg.slot.name, sizeof(cfg.slot.name)) - lcd_columns, 0);
+        int, strnlen(disp_name, sizeof(disp_name)) - lcd_columns, 0);
     if (lcd_scroll.end && !lcd_scroll.pause)
         lcd_scroll.end += lcd_columns;
     if (lcd_scroll.off > lcd_scroll.end)
@@ -179,7 +191,7 @@ static void lcd_scroll_name(void)
     if (lcd_scroll.pause != 0) {
         if (++lcd_scroll.off > lcd_scroll.end)
             lcd_scroll.off = 0;
-        snprintf(msg, sizeof(msg), "%s", cfg.slot.name + lcd_scroll.off);
+        snprintf(msg, sizeof(msg), "%s", disp_name + lcd_scroll.off);
         if ((lcd_scroll.off == 0)
             || (lcd_scroll.off == lcd_scroll.end))
             lcd_scroll.ticks = time_ms(lcd_scroll.pause);
@@ -188,12 +200,12 @@ static void lcd_scroll_name(void)
         lcd_scroll.off++;
         if (lcd_scroll.off <= lcd_scroll.end) {
             snprintf(msg, sizeof(msg), "%s%*s%s",
-                     cfg.slot.name + lcd_scroll.off,
-                     scroll_gap, "", cfg.slot.name);
+                     disp_name + lcd_scroll.off,
+                     scroll_gap, "", disp_name);
         } else {
             snprintf(msg, sizeof(msg), "%*s%s",
                      scroll_gap - (lcd_scroll.off - lcd_scroll.end), "",
-                     cfg.slot.name);
+                     disp_name);
             if ((lcd_scroll.off - lcd_scroll.end) == scroll_gap)
                 lcd_scroll.off = 0;
         }
@@ -208,6 +220,7 @@ static void display_write_slot(bool_t nav_mode)
     char msg[lcd_columns+1], typename[4] = "";
     unsigned int i;
 
+    update_disp_name();
     if (display_type != DT_LCD_OLED) {
         if (display_type == DT_LED_7SEG)
             led_7seg_write_decimal(cfg.slot_nr);
@@ -217,7 +230,7 @@ static void display_write_slot(bool_t nav_mode)
     if (nav_mode && !cfg_scroll_reset) {
         lcd_scroll_init(0, ff_cfg.nav_scroll_rate);
         if (lcd_scroll.end == 0) {
-            snprintf(msg, sizeof(msg), "%s", cfg.slot.name);
+            snprintf(msg, sizeof(msg), "%s", disp_name);
             lcd_write(0, 0, -1, msg);
         } else {
             lcd_scroll.off--;
@@ -225,7 +238,7 @@ static void display_write_slot(bool_t nav_mode)
             lcd_scroll_name();
         }
     } else {
-        snprintf(msg, sizeof(msg), "%s", cfg.slot.name);
+        snprintf(msg, sizeof(msg), "%s", disp_name);
         lcd_write(0, 0, -1, msg);
     }
 
@@ -1278,6 +1291,13 @@ static void read_ff_cfg(void)
                 : DISPON_yes;
             break;
 
+        case FFCFG_show_filename_ext:
+            ff_cfg.show_filename_ext =
+                !strcmp(opts.arg, "yes") ? SHOWEXT_yes
+                : !strcmp(opts.arg, "auto") ? SHOWEXT_auto
+                : SHOWEXT_no;
+            break;
+
         case FFCFG_display_scroll_rate:
             ff_cfg.display_scroll_rate = strtol(opts.arg, NULL, 10);
             if (ff_cfg.display_scroll_rate < 100)
@@ -1988,12 +2008,61 @@ indexed_mode:
  * HxC Selector Mode:
  *  READ_SLOT:  Update slot_nr/slot_map/max_slot_nr from HXCSDFE.CFG.
  *  WRITE_SLOT: Update HXCSDFE.CFG from slot_nr. */
+/* Whether @fname is @name of @len letters plus an extension, letter case
+ * aside. */
+static bool_t same_base_name(const char *fname, const char *name,
+                             unsigned int len)
+{
+    unsigned int i;
+
+    for (i = 0; i < len; i++)
+        if (__tolower(fname[i]) != __tolower(name[i]))
+            return FALSE;
+    return (fname[len] == '.') && (strchr(fname + len + 1, '.') == NULL);
+}
+
+/* Whether another image of the folder has the slot's name with another
+ * extension, so that the name alone does not tell them apart. Known from
+ * the sorted list alone: in an unsorted folder every name counts as such,
+ * which costs no directory pass. */
+static bool_t slot_name_ambiguous(void)
+{
+    const char *name = cfg.slot.name;
+    unsigned int len = strlen(name), nr = 0, i, first;
+
+    if (cfg.hxc_mode)
+        return FALSE;
+    if (!cfg.sorted)
+        return TRUE;
+
+    first = cfg.depth ? 1 : 0;
+    for (i = first; i <= cfg.max_slot_nr; i++) {
+        const struct native_dirent *ent = cfg.sorted[i - first];
+        if (!(ent->attr & AM_DIR) && same_base_name(ent->name, name, len))
+            nr++;
+    }
+
+    return nr >= 2;
+}
+
+/* Per show-filename-ext: the extension is shown always, or only when the name
+ * is ambiguous in the folder, or never. */
+static void update_slot_show_ext(void)
+{
+    cfg.slot_show_ext = !(cfg.slot.attributes & AM_DIR)
+        && (cfg.slot.type[0] != '\0')
+        && ((ff_cfg.show_filename_ext == SHOWEXT_yes)
+            || ((ff_cfg.show_filename_ext == SHOWEXT_auto)
+                && slot_name_ambiguous()));
+}
+
 static void cfg_update(uint8_t slot_mode)
 {
     if (cfg.hxc_mode)
         hxc_cfg_update(slot_mode);
     else
         native_update(slot_mode);
+    update_slot_show_ext();
     if (!(cfg.slot.attributes & AM_DIR)
         && (ff_cfg.write_protect || volume_readonly()))
         cfg.slot.attributes |= AM_RDO;
