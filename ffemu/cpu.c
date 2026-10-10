@@ -36,11 +36,10 @@
 volatile unsigned int emu_in_buttons;
 volatile int emu_in_rotary;
 volatile unsigned int emu_out_speaker;
-/* As connected to a computer that has just selected the drive; Shugart
- * steps go inward. */
-volatile unsigned int emu_in_fdd = EMU_FDD_SEL
-    | (FFEMU_APPLE2 ? 0 : EMU_FDD_DIR);
+/* Set up by ui_fdd_set_type() once the settings say what the computer is. */
+volatile unsigned int emu_in_fdd;
 volatile unsigned int emu_in_step;
+volatile int emu_fdd_type;
 
 char log_ring[LOG_SIZE];
 volatile unsigned int log_head;

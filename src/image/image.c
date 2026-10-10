@@ -68,12 +68,26 @@ const struct image_type image_type[] = {
     { "", NULL }
 };
 
+extern const struct image_handler nib_image_handler;
+extern const struct image_handler nic_image_handler;
+
+const struct image_type apple2_image_type[] = {
+    { "hfe", &hfe_image_handler },
+    { "nib", &nib_image_handler },
+    { "nic", &nic_image_handler },
+    { "", NULL }
+};
+
 #elif TARGET == TARGET_apple2
 
 extern const struct image_handler hfe_image_handler;
+extern const struct image_handler nib_image_handler;
+extern const struct image_handler nic_image_handler;
 
 const struct image_type image_type[] = {
     { "hfe", &hfe_image_handler },
+    { "nib", &nib_image_handler },
+    { "nic", &nic_image_handler },
     { "", NULL }
 };
 
@@ -103,11 +117,12 @@ bool_t image_valid(FILINFO *fp)
 
     /* Check valid extension. */
     filename_extension(fp->fname, ext, sizeof(ext));
-    if ((TARGET == TARGET_shugart) && !strcmp(ext, "adf")) {
+    if (!apple2_mode && (TARGET == TARGET_shugart) && !strcmp(ext, "adf")) {
         return (ff_cfg.host == HOST_acorn) || !(fp->fsize % (2*11*512));
     } else {
-        const struct image_type *type;
-        for (type = &image_type[0]; type->handler != NULL; type++)
+        const struct image_type *type = apple2_mode
+            ? &apple2_image_type[0] : &image_type[0];
+        for (; type->handler != NULL; type++)
             if (!strcmp(ext, type->ext))
                 return TRUE;
     }
@@ -165,6 +180,15 @@ void image_open(struct image *im, struct slot *slot, DWORD *cltbl)
     memcpy(ext, slot->type, sizeof(slot->type));
     ext[sizeof(slot->type)] = '\0';
 
+    if (apple2_mode) {
+        /* The Apple2 formats are told apart by extension alone. */
+        for (type = &apple2_image_type[0]; type->handler != NULL; type++)
+            if (!strcmp(ext, type->ext)
+                && try_handler(im, slot, cltbl, type->handler))
+                return;
+        F_die(FR_BAD_IMAGE);
+    }
+
     /* Use the extension as a hint to the correct image handler. */
     for (type = &image_type[0]; type->handler != NULL; type++)
         if (!strcmp(ext, type->ext))
@@ -213,8 +237,17 @@ void image_open(struct image *im, struct slot *slot, DWORD *cltbl)
 
 void image_open(struct image *im, struct slot *slot, DWORD *cltbl)
 {
-    if (try_handler(im, slot, cltbl, &hfe_image_handler))
-        return;
+    char ext[sizeof(slot->type)+1];
+    const struct image_type *type;
+
+    memcpy(ext, slot->type, sizeof(slot->type));
+    ext[sizeof(slot->type)] = '\0';
+
+    /* The Apple2 formats are told apart by extension alone. */
+    for (type = &image_type[0]; type->handler != NULL; type++)
+        if (!strcmp(ext, type->ext)
+            && try_handler(im, slot, cltbl, type->handler))
+            return;
 
     /* No handler found: bad image. */
     F_die(FR_BAD_IMAGE);

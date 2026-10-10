@@ -40,7 +40,8 @@ static const char * const color_name[8] = {
 };
 #define BRIGHT "bright-"
 
-enum { SET_style, SET_display_color, SET_hold_ms, SET_display, SET_nr };
+enum { SET_style, SET_display_color, SET_hold_ms, SET_display, SET_fdd_type,
+       SET_nr };
 
 static const struct setting {
     const char *name, *comment;
@@ -60,7 +61,12 @@ static const struct setting {
     [SET_display] = {
         "display",
         "Display type: ssd1306-128x32, ssd1306-128x64, sh1106-128x32 or "
-        "sh1106-128x64. Key 0." }
+        "sh1106-128x64. Key 0." },
+    [SET_fdd_type] = {
+        "fdd-type",
+        "FDD type, the computer on the floppy cable: step-dir (Shugart, PC "
+        "and the like) or apple2 (stepper phases); the apple2 firmware "
+        "takes apple2 only. Key 8." }
 };
 
 /* The value of setting @set as the file has it, into @buf. */
@@ -79,6 +85,9 @@ static const char *value_of(int set, char *buf, size_t size)
         break;
     case SET_display:
         snprintf(buf, size, "%s", display_name[config.display]);
+        break;
+    case SET_fdd_type:
+        snprintf(buf, size, "%s", fdd_type_name[config.fdd_type]);
         break;
     }
     return buf;
@@ -202,6 +211,14 @@ static bool parse_line(char *line)
         for (i = 0; i < DISP_nr; i++) {
             if (!strcmp(value, display_name[i])) {
                 config.display = i;
+                return true;
+            }
+        }
+        return false;
+    case SET_fdd_type:
+        for (i = 0; i < FDD_TYPE_nr; i++) {
+            if (!strcmp(value, fdd_type_name[i])) {
+                config.fdd_type = i;
                 return true;
             }
         }
@@ -507,6 +524,8 @@ void rc_load(void)
     config.display = DISP_ssd1306_32;
     config.display_color = 8 | 6; /* bright cyan */
     config.hold_ms = 150;
+    config.fdd_type = FFEMU_APPLE2 ? EMU_FDD_TYPE_apple2
+        : EMU_FDD_TYPE_step_dir;
 
     if ((xdg != NULL) && (xdg[0] != '\0'))
         snprintf(config.path, sizeof(config.path),
