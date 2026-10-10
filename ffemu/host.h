@@ -73,11 +73,17 @@ void flash_summary(char *buf, size_t size);
 #define OLED_W 128
 #define OLED_MAX_H 64
 
-/* The displays that ffemu can fit: the controller and the panel's height. */
+/* The displays that ffemu can fit: an OLED, by its controller and the
+ * panel's height, or a 7-segment LED display, by its controller and its
+ * digits. */
 enum { DISP_ssd1306_32, DISP_ssd1306_64, DISP_sh1106_32, DISP_sh1106_64,
-       DISP_nr };
-#define DISP_IS_SH1106(d) ((d) >= DISP_sh1106_32)
+       DISP_74hc164, DISP_tm1651, DISP_nr };
+#define DISP_IS_LED(d) ((d) >= DISP_74hc164)
+#define DISP_IS_SH1106(d) (((d) >= DISP_sh1106_32) && !DISP_IS_LED(d))
+/* Of an OLED. */
 #define DISP_HEIGHT(d) (((d) & 1) ? 64 : 32)
+/* Of an LED display. */
+#define DISP_DIGITS(d) (((d) == DISP_tm1651) ? 3 : 2)
 /* Their names in the settings file, and on the screen. */
 extern const char * const display_name[DISP_nr];
 extern const char * const display_label[DISP_nr];
@@ -97,6 +103,41 @@ struct oled_view {
 void oled_init(int display);
 /* Snapshot for drawing: @px gets OLED_MAX_H rows of OLED_W bytes, 0 or 1. */
 void oled_get_view(struct oled_view *view, uint8_t *px);
+
+/*
+ * led7seg.c
+ */
+
+struct led_view {
+    bool present;            /* an LED display is fitted */
+    bool on;
+    unsigned int nr_digits;  /* 3 or 2 */
+    unsigned int brightness; /* 0-7, of the TM1651 */
+    unsigned int nr_updates; /* counts writes of the digits */
+    uint8_t seg[3];          /* each digit's segments: a to g, the point */
+};
+
+/* The fonts of the digits, one per rendering (led_font.h). */
+enum { LED_FONT_ascii, LED_FONT_half, LED_FONT_braille };
+/* The character of a lit pixel in the ASCII rendering, from led_font.h. */
+extern const char ascii_pixel;
+
+/* Fits display @display, DISP_74hc164 or DISP_tm1651. */
+void led_init(int display);
+void led_get_view(struct led_view *view);
+/* The size in pixels of @nr_digits digits in font @font. */
+void led_size(unsigned int nr_digits, unsigned int font, unsigned int *w,
+              unsigned int *h);
+/* The digits of @v as pixels in font @font: @lit the segments that are
+ * on, @all every segment, each @w by @h bytes, 0 or 1, in buffers of
+ * this module's that the next call reuses. */
+void led_pixels(const struct led_view *v, unsigned int font,
+                const uint8_t **lit, const uint8_t **all, unsigned int *w,
+                unsigned int *h);
+/* The digits of @v as text, a point after a digit whose point is lit, a
+ * digit lit only in its lower loop as the stepper phases on and a blank,
+ * '?' for a pattern that is no digit or letter of the firmware's. */
+void led_text(const struct led_view *v, char *buf, size_t size);
 
 /*
  * fatimg.c
@@ -137,11 +178,37 @@ void usb_get_info(struct usb_info *info);
 /* The text of FF.CFG on a drive from an image or a disk, read when it was
  * inserted; NULL for a directory, or if it has none. */
 const char *usb_ff_cfg_text(void);
+/* The text of the file with short name @name83 (8.3, blank-padded) in the
+ * folder FF, or in the root if the drive has no such folder, as the
+ * firmware sees the drive now, its writes included; false if there is no
+ * drive or no such file. */
+bool usb_read_text(const char *name83, char *buf, size_t size);
 /* While the drive is out, usb_get_info() and usb_ff_cfg_text() tell of the
  * FF.CFG of the last drive. */
+/* Where FF.CFG is, or would be, under directory @dir, as a path relative
+ * to it: in the folder FF if there is one, else in @dir itself. */
+void usb_ff_cfg_place(const char *dir, char *buf, size_t size);
 /* Writes the drive as the firmware sees it to file @path; if that fails,
  * says why in @err. */
 bool usb_save(const char *path, char *err, size_t size);
+
+/*
+ * cfgfile.c
+ */
+
+/* Writes FF.CFG on the USB drive from configuration @cfg, as the flash
+ * memory keeps one: every option, or only those that differ from the
+ * defaults. Says what it did, or why it could not, in @msg. */
+bool ff_cfg_write(const void *cfg, bool all, char *msg, size_t size);
+/* The value of option @name in the drive's FF.CFG, as the firmware sees the
+ * file now, into @value; false if there is no drive, file or such line. */
+bool ff_cfg_file_option(const char *name, char *value, size_t size);
+/* Sets option @name to @value in the drive's FF.CFG, where it has a line
+ * for it, on a drive made from a directory or a disk the system has
+ * mounted: the line rewritten in place, the old file kept as .BAK. Says
+ * what it did, or why it could not, in @msg. */
+bool ff_cfg_set_option(const char *name, const char *value, char *msg,
+                       size_t size);
 
 /*
  * usbdisk.c
@@ -152,6 +219,9 @@ bool usb_save(const char *path, char *err, size_t size);
  * into @line. Returns their number. */
 int usb_disk_find(char *dev, size_t size, char *line, size_t line_size,
                   FILE *f);
+/* Where the system has disk @dev, or its first partition, mounted, as a
+ * directory into @buf; false if nowhere. */
+bool usb_disk_mount(const char *dev, char *buf, size_t size);
 
 /*
  * rc.c

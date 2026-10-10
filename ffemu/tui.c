@@ -69,13 +69,13 @@ enum {
     CP_path,      /* light cyan on blue */
     CP_bar,       /* black on light gray: menu bar and status line */
     CP_hotkey,    /* dark red on light gray: hotkeys in the status line */
-    CP_warn,      /* bright white on red */
+    CP_warn,      /* bright white on bright magenta: an error */
     CP_good,      /* bright green on blue */
     CP_ctl_off,   /* bright red on blue: a control at rest */
     CP_ctl_latch, /* dark red on light gray: a latchable button */
     CP_ctl_on,    /* dark red on bright yellow: a control or key in use */
     CP_crop,      /* bright green on blue: a line is cut short */
-    CP_note,      /* dark red on black: a remark in the OLED's frame */
+    CP_note,      /* magenta on black, bright: an error in a frame */
     CP_focus,     /* bright white on blue: the frame of the focused window */
     CP_dialog,    /* black on light gray: a dialog */
     CP_dlg_frame, /* bright white on light gray: the dialog's frame */
@@ -83,6 +83,7 @@ enum {
     CP_button_on, /* bright white on green: the highlighted button */
     CP_shadow,    /* dark gray on black: what a dialog's shadow falls on */
     CP_dark,      /* dark gray on blue: something at rest, use DARK_GRAY */
+    CP_ghost,     /* dark gray on black: the LED display's unlit segments */
     CP_off,       /* light gray on dark gray: a window with nothing to show */
     CP_scroll,    /* blue on cyan: a scroll bar */
     CP_raw,       /* bright magenta on blue: flash bytes FF.CFG cannot say */
@@ -93,6 +94,7 @@ enum {
     CP_cluster_hot, /* bright red on cyan: a hotkey among them */
     CP_cluster_off, /* dark gray on cyan: them, disabled */
     CP_dlg_off,   /* dark gray on light gray: a disabled control's label */
+    CP_dlg_help,  /* blue on light gray: the help of the control in focus */
     CP_input,     /* bright white on blue: an input line */
     CP_button_def, /* bright cyan on green: the default button */
     CP_signal,    /* black on dark yellow: an active signal of the host */
@@ -114,7 +116,7 @@ enum {
 /* Controls, Status and Flash mem are side by side, of equal height; Status
  * is never narrower than its board name needs. */
 #define STATUS_MIN_W 42
-#define PANE_ROWS 12
+#define PANE_ROWS 13
 
 /* The letters that select the rendering styles, in their order. */
 #define STYLE_KEYS "qwe"
@@ -136,12 +138,17 @@ enum {
  * and the display or the FDD type that its dialog has selected. */
 static enum {
     DLG_none, DLG_quit, DLG_display, DLG_rows, DLG_flash, DLG_emul,
-    DLG_fdd_type
+    DLG_fdd_type, DLG_message, DLG_fdfile
 } dialog;
+/* The message box over a dialog: what it says, and the dialog it returns
+ * to when closed. */
+static char msg_title[32], msg_text[256];
+static int msg_return;
 static int dialog_button;
 static int dialog_display;
 static int dialog_fdd_type;
 static void draw_dialog(void);
+static void draw_fdfile_dialog(void);
 static void draw_flash_dialog(void);
 
 #define FRAME_MS 20
@@ -339,117 +346,243 @@ static const char * const key_label[KEY_ACT_nr] = {
  * The display.
  */
 
-/* Size in character cells of a display of @h pixel rows, in rendering
- * style @style. */
-static void display_cells(int style, unsigned int h, int *cw, int *ch)
+/* Size in character cells of @w by @h pixels in rendering style @style. */
+static void cells(int style, unsigned int w, unsigned int h, int *cw,
+                  int *ch)
 {
     switch (style) {
     case STYLE_braille:
-        *cw = OLED_W / 2;
+        *cw = w / 2;
         *ch = h / 4;
         break;
     case STYLE_ascii:
-        *cw = OLED_W;
+        *cw = w;
         *ch = h;
         break;
     default:
-        *cw = OLED_W;
+        *cw = w;
         *ch = h / 2;
         break;
     }
 }
 
+/* The display fitted, DISP_*: config.display is the one chosen, which
+ * differs from it between the choice of another and the restart. */
+static int fitted_display;
+
+/* The font of the LED display's digits for @style. */
+static unsigned int led_font_of(int style)
+{
+    return (style == STYLE_braille) ? LED_FONT_braille
+        : (style == STYLE_ascii) ? LED_FONT_ascii : LED_FONT_half;
+}
+
+/* Size in character cells of the display fitted, in @style. */
+static void display_cells(int style, int *cw, int *ch)
+{
+    unsigned int w, h;
+
+    if (DISP_IS_LED(fitted_display)) {
+        led_size(DISP_DIGITS(fitted_display), led_font_of(style), &w, &h);
+    } else {
+        w = OLED_W;
+        h = DISP_HEIGHT(fitted_display);
+    }
+    cells(style, w, h, cw, ch);
+}
+
 /* The preferred style, unless its display does not fit the terminal: then
- * the narrowest one. */
-static int style_in_use(unsigned int h)
+ * the narrowest one, which for the LED display is ASCII. */
+static int style_in_use(void)
 {
     int cw, ch;
 
-    display_cells(config.style, h, &cw, &ch);
-    return (cw + 2 > COLS) ? STYLE_braille : config.style;
+    display_cells(config.style, &cw, &ch);
+    if (cw + 2 <= COLS)
+        return config.style;
+    return DISP_IS_LED(fitted_display) ? STYLE_ascii : STYLE_braille;
 }
 
-/* Draws the display at (@y0,@x0) in @style; @too_small if it does not fit
- * the window even so. */
-static void draw_display(int y0, int x0, int style, bool too_small,
-                         const struct oled_view *v, const uint8_t *px)
+/* The bits of cell (@x,@y) of @w-wide pixels @px in @style: the dots of a
+ * braille character, the halves of a block, or the one pixel. */
+static unsigned int cell_bits(int style, const uint8_t *px, unsigned int w,
+                              int x, int y)
+{
+    /* Dots are numbered down the left column, then the right, except for
+     * the bottom pair, which was added later. */
+    static const uint8_t dot[4][2] = {
+        { 0x01, 0x08 }, { 0x02, 0x10 }, { 0x04, 0x20 }, { 0x40, 0x80 } };
+    unsigned int i, j, bits = 0;
+
+    switch (style) {
+    case STYLE_braille:
+        for (i = 0; i < 4; i++)
+            for (j = 0; j < 2; j++)
+                if (px[(4*y + i) * w + 2*x + j])
+                    bits |= dot[i][j];
+        break;
+    case STYLE_ascii:
+        bits = px[y * w + x];
+        break;
+    default:
+        bits = px[2*y * w + x] | (px[(2*y + 1) * w + x] << 1);
+        break;
+    }
+    return bits;
+}
+
+/* Draws @w by @h pixels at (@y0,@x0) in @style: @lit in @attr, and where
+ * a cell has nothing lit, @all, the unlit segments of the LED display, in
+ * dark gray on the same black. */
+static void draw_pixels(int y0, int x0, int style, const uint8_t *lit,
+                        const uint8_t *all, unsigned int w, unsigned int h,
+                        attr_t attr)
+{
+    static const wchar_t half[4] = { L' ', 0x2580, 0x2584, 0x2588 };
+    attr_t ghost_attr = COLOR_PAIR(CP_ghost) | ((COLORS >= 16) ? 0 : A_BOLD);
+    wchar_t line[512];
+    bool ghost[ARRAY_SIZE(line)];
+    int cw, ch, x, y, run;
+
+    if (!has_colors())
+        all = NULL;
+    cells(style, w, h, &cw, &ch);
+    if (cw > (int)ARRAY_SIZE(line))
+        cw = ARRAY_SIZE(line);
+    for (y = 0; y < ch; y++) {
+        for (x = 0; x < cw; x++) {
+            unsigned int bits = cell_bits(style, lit, w, x, y);
+            ghost[x] = !bits && (all != NULL)
+                && ((bits = cell_bits(style, all, w, x, y)) != 0);
+            line[x] = (style == STYLE_braille) ? 0x2800 + bits
+                : (style == STYLE_ascii) ? (bits ? (wchar_t)ascii_pixel : L' ')
+                : half[bits];
+        }
+        /* In runs of one attribute. */
+        for (x = 0; x < cw; x = run) {
+            for (run = x + 1; (run < cw) && (ghost[run] == ghost[x]); run++)
+                continue;
+            put_wide(y0 + y, x0 + x, ghost[x] ? ghost_attr : attr, line + x,
+                     run - x);
+        }
+    }
+}
+
+static const char mismatch_note[] = " - display type mismatch";
+
+/* The width of the display's frame: around @cw cells of pixels, or wider
+ * when @title needs it. */
+static int frame_width(int cw, const char *title)
+{
+    /* A space on each side of the title, two frame columns at each end. */
+    int tw = strlen(title) + 6;
+
+    return (cw + 2 > tw) ? cw + 2 : tw;
+}
+
+/* The frame of the display at (@y0,@x0), @fw wide, @ch cells of pixels
+ * tall, with @title; the end of the title in bright magenta if @mismatch,
+ * the firmware being set up for another display than the one fitted. */
+static void display_frame(int y0, int x0, int fw, int ch, const char *title,
+                          bool mismatch, attr_t attr)
+{
+    int tw = strlen(title) + 2;
+
+    frame(y0, x0, fw, ch + 2, title, attr, COLOR_PAIR(CP_dframe));
+    if (mismatch && (tw <= fw - 4))
+        put(y0, x0 + (fw - tw) / 2 + 1 + strlen(title)
+            - strlen(mismatch_note), strlen(mismatch_note), BRIGHT(CP_note),
+            "%s", mismatch_note);
+}
+
+/* The rendering style and its key, for the bottom left corner of the
+ * display's frame; or that the window is too small, @too_small or when
+ * @style is not the one chosen, on the lowest line left above the status
+ * line if the bottom is cut off, over the pixels. */
+static void display_hint(int y0, int x0, int ch, int style, bool too_small)
 {
     static const char * const style_label[STYLE_nr + 1] = {
         [STYLE_braille] = "Braille",
         [STYLE_half] = "Half blocks",
         [STYLE_ascii] = "ASCII"
     };
-#define PX(x,y) px[(y)*OLED_W + (x)]
-    static const wchar_t half[4] = { L' ', 0x2580, 0x2584, 0x2588 };
-    attr_t attr = (config.display_color & 8) ? BRIGHT(CP_display)
-        : COLOR_PAIR(CP_display);
-    wchar_t line[OLED_W];
-    int cw, ch, x, y, hint_y;
-    char title[96];
-    bool mismatch = v->present && (v->driven != v->height);
-    int tw;
-#define MISMATCH " - display type mismatch"
+    char hint[64];
+    int hint_y;
 
-    display_cells(style, v->height, &cw, &ch);
-
-    snprintf(title, sizeof(title), "OLED 128x%u on %s%s%s", v->height,
-             v->chip, v->on ? "" : " - off", mismatch ? MISMATCH : "");
-    frame(y0, x0, cw + 2, ch + 2, title, attr, COLOR_PAIR(CP_dframe));
-
-    /* The firmware set up for another display than the one fitted: in red,
-     * where frame() put the end of the title. */
-    tw = strlen(title) + 2;
-    if (mismatch && (tw <= cw + 2 - 4))
-        put(y0, x0 + (cw + 2 - tw) / 2 + 1 + strlen(title) - strlen(MISMATCH),
-            strlen(MISMATCH), BRIGHT(CP_note), "%s", MISMATCH);
-
-    /* The rendering style and its key, for the bottom left corner; or that
-     * the window is too small, on the lowest line left above the status
-     * line if the bottom is cut off. */
     if (too_small)
-        snprintf(title, sizeof(title), " Window too small ");
+        snprintf(hint, sizeof(hint), " Window too small ");
     else
-        snprintf(title, sizeof(title), " %c: %s ",
+        snprintf(hint, sizeof(hint), " %c: %s ",
                  toupper(STYLE_KEYS[config.style - 1]),
                  (style == config.style) ? style_label[style]
                  : "Window too small");
     too_small = too_small || (style != config.style);
-    for (y = 0; y < ch; y++) {
-        for (x = 0; x < cw; x++) {
-            switch (style) {
-            case STYLE_braille: {
-                /* Dots are numbered down the left column, then the right,
-                 * except for the bottom pair, which was added later. */
-                static const uint8_t dot[4][2] = {
-                    { 0x01, 0x08 }, { 0x02, 0x10 },
-                    { 0x04, 0x20 }, { 0x40, 0x80 } };
-                unsigned int i, j, bits = 0;
-                for (i = 0; i < 4; i++)
-                    for (j = 0; j < 2; j++)
-                        if (PX(2*x + j, 4*y + i))
-                            bits |= dot[i][j];
-                line[x] = 0x2800 + bits;
-                break;
-            }
-            case STYLE_ascii:
-                line[x] = PX(x, y) ? L'#' : L' ';
-                break;
-            default:
-                line[x] = half[PX(x, 2*y) | (PX(x, 2*y + 1) << 1)];
-                break;
-            }
-        }
-        put_wide(y0 + 1 + y, x0 + 1, attr, line, cw);
-    }
-#undef PX
-#undef MISMATCH
-
-    /* Over the pixels if the bottom is cut off. */
     hint_y = y0 + ch + 1;
     if ((hint_y > LINES - 2) && (LINES - 2 > y0))
         hint_y = LINES - 2;
-    put(hint_y, x0 + 2, strlen(title),
-        COLOR_PAIR(too_small ? CP_note : CP_dframe), "%s", title);
+    put(hint_y, x0 + 2, strlen(hint),
+        too_small ? BRIGHT(CP_note) : COLOR_PAIR(CP_dframe), "%s", hint);
+}
+
+/* The OLED's title into @title, noting a mismatch, the firmware driving
+ * another display than the one fitted; whether it does. */
+static bool oled_title(const struct oled_view *v, char *title, size_t size)
+{
+    bool mismatch = v->present && (v->driven != v->height);
+
+    snprintf(title, size, "OLED 128x%u on %s%s%s", v->height, v->chip,
+             v->on ? "" : " - off", mismatch ? mismatch_note : "");
+    return mismatch;
+}
+
+/* The LED display's title into @title, noting a mismatch, display-type in
+ * flash keeping the firmware from looking for it; whether it does. */
+static bool led_title(const struct led_view *v, char *title, size_t size)
+{
+    uint8_t cfg[256];
+    bool mismatch;
+
+    emu_flash_get(cfg);
+    mismatch = !emu_flash_display_auto(cfg);
+    snprintf(title, size, "LED %u digits on %s%s%s", v->nr_digits,
+             (v->nr_digits == 3) ? "TM1651" : "74HC164",
+             v->on ? "" : " - off", mismatch ? mismatch_note : "");
+    return mismatch;
+}
+
+/* Draws the OLED at (@y0,@x0) in a frame @fw wide, in @style; @too_small
+ * if it does not fit the window even so. */
+static void draw_display(int y0, int x0, int fw, int style, bool too_small,
+                         const struct oled_view *v, const uint8_t *px,
+                         const char *title, bool mismatch)
+{
+    attr_t attr = (config.display_color & 8) ? BRIGHT(CP_display)
+        : COLOR_PAIR(CP_display);
+    int cw, ch;
+
+    cells(style, OLED_W, v->height, &cw, &ch);
+    display_frame(y0, x0, fw, ch, title, mismatch, attr);
+    draw_pixels(y0 + 1, x0 + 1, style, px, NULL, OLED_W, v->height, attr);
+    display_hint(y0, x0, ch, style, too_small);
+}
+
+/* Draws the LED display at (@y0,@x0) in a frame @fw wide, in @style, its
+ * segments as pixels, the unlit ones faint. */
+static void draw_led(int y0, int x0, int fw, int style, bool too_small,
+                     const struct led_view *v, const char *title,
+                     bool mismatch)
+{
+    const uint8_t *lit, *all;
+    attr_t attr = (config.display_color & 8) ? BRIGHT(CP_display)
+        : COLOR_PAIR(CP_display);
+    unsigned int w, h;
+    int cw, ch;
+
+    led_pixels(v, led_font_of(style), &lit, &all, &w, &h);
+    cells(style, w, h, &cw, &ch);
+    display_frame(y0, x0, fw, ch, title, mismatch, attr);
+    draw_pixels(y0 + 1, x0 + 1, style, lit, all, w, h, attr);
+    display_hint(y0, x0, ch, style, too_small);
 }
 
 /*
@@ -506,6 +639,49 @@ static int piece(int y, int x, int end, attr_t attr, const char *fmt, ...)
 
     put(y, x, end - x, attr, "%s", s);
     return x + strlen(s);
+}
+
+/* IMAGE_A.CFG, in which the firmware keeps the image selected, as the
+ * firmware sees it now: its name, then its text with the line ends shown
+ * as \r and \n, or "absent" or "empty". Read again when the drive has
+ * been written. */
+static void draw_image_a(int y, int x, int w, const struct usb_info *usb)
+{
+    static char text[300];
+    static unsigned long reads_seen = ~0ul, writes_seen;
+    static unsigned int gen_seen;
+    static bool have;
+    const char *p;
+    int c, n;
+
+    if (!usb->inserted) {
+        have = false;
+        reads_seen = ~0ul;
+    } else if ((reads_seen == ~0ul) || (usb->nr_writes != writes_seen)
+               || (usb->ff_cfg_gen != gen_seen)) {
+        have = usb_read_text("IMAGE_A CFG", text, sizeof(text));
+        reads_seen = usb->nr_reads;
+        writes_seen = usb->nr_writes;
+        gen_seen = usb->ff_cfg_gen;
+    }
+
+    c = piece(y, x, x + w, BRIGHT(CP_path), "IMAGE_A.CFG ");
+    if (!have || (strspn(text, " \t\r\n") == strlen(text))) {
+        piece(y, c, x + w, DARK_GRAY, have ? "empty" : "absent");
+        return;
+    }
+    for (p = text; *p != '\0'; p += n) {
+        n = strcspn(p, "\r\n");
+        if (n != 0) {
+            c = piece(y, c, x + w, BRIGHT(CP_value), "%.*s", n, p);
+            continue;
+        }
+        c = piece(y, c, x + w, BRIGHT(CP_raw), (*p == '\r') ? "\\r" : "\\n");
+        n = 1;
+    }
+    /* Cut short: the mark, which the pieces beyond the edge do not draw. */
+    if ((c > x + w) && (pane_right >= 0))
+        put_wide(y, pane_right, BRIGHT(CP_crop), L">", 1);
 }
 
 static void draw_status(int y, int x, int w)
@@ -584,6 +760,7 @@ static void draw_status(int y, int x, int w)
         field(&y, x, w, "USB drive", DARK_GRAY, "Ejected");
     }
     left_path(y++, x, w, tilde(usb_path_name, path, sizeof(path)));
+    draw_image_a(y++, x, w, &usb);
     /* Why the drive could not be inserted, if it could not, in place of the
      * gap below. */
     if (!usb.inserted && usb.error[0])
@@ -1119,8 +1296,6 @@ static void draw_bars(void)
     const wchar_t *museum = plain() ? L"CYBER-MUSEUM, MUROM" : cyrillic;
     int name_w = strlen(name) + strlen(ver), what_w = strlen(what);
     int museum_w = wcslen(museum);
-    char keys[16];
-    int x = 0, i;
 
     pane_right = -1;
 
@@ -1134,8 +1309,25 @@ static void draw_bars(void)
     if (1 + name_w + 2 + museum_w + 1 <= COLS)
         put_wide(0, COLS - 1 - museum_w, COLOR_PAIR(CP_bar), museum,
                  museum_w);
+}
 
+/* The bottom line: the keys of the dialog open, or else of ffemu. */
+static void draw_key_bar(void)
+{
+    char keys[16];
+    int x = 0, i;
+
+    pane_right = -1;
     put(LINES - 1, 0, COLS, COLOR_PAIR(CP_bar), "%*s", COLS, "");
+    /* In a dialog, the dialog's keys, in the order of its buttons. */
+    if (dialog != DLG_none) {
+        x = hotkey(x, "Enter", "OK");
+        x = hotkey(x, "Esc", "Cancel");
+        x = hotkey(x, "Tab/Shift+Tab/</>/^/v", "Navigate");
+        if (x - 1 > COLS)
+            put(LINES - 1, COLS - 1, 1, BRIGHT(CP_bar_crop), ">");
+        return;
+    }
     /* The keys of ffemu itself; the device's are in the Controls window. */
     x = hotkey(x, key_label[KEY_ACT_quit], "Exit");
     for (i = 0; i < STYLE_nr; i++) {
@@ -1273,17 +1465,31 @@ static void redraw(void)
 {
     static uint8_t px[OLED_W * OLED_MAX_H];
     struct oled_view v;
-    int style, cw, ch, dh, y, kw, sw, bottom = LINES - 1;
+    struct led_view lv;
+    bool led = DISP_IS_LED(fitted_display), too_small, mismatch;
+    int style, cw, ch, fw, dh, y, kw, sw, bottom = LINES - 1;
+    char title[96];
 
-    oled_get_view(&v, px);
-    style = style_in_use(v.height);
-    display_cells(style, v.height, &cw, &ch);
+    if (led) {
+        led_get_view(&lv);
+        mismatch = led_title(&lv, title, sizeof(title));
+    } else {
+        oled_get_view(&v, px);
+        mismatch = oled_title(&v, title, sizeof(title));
+    }
+    style = style_in_use();
+    display_cells(style, &cw, &ch);
+    fw = frame_width(cw, title);
     dh = ch + 2;
+    too_small = (fw > COLS) || (1 + dh > bottom);
 
     erase();
 
-    draw_display(1, 0, style, (cw + 2 > COLS) || (1 + dh > bottom), &v, px);
-    draw_ff_cfg(1, cw + 2, COLS - cw - 2, (1 + dh > bottom) ? bottom - 1 : dh);
+    if (led)
+        draw_led(1, 0, fw, style, too_small, &lv, title, mismatch);
+    else
+        draw_display(1, 0, fw, style, too_small, &v, px, title, mismatch);
+    draw_ff_cfg(1, fw, COLS - fw, (1 + dh > bottom) ? bottom - 1 : dh);
     draw_bars();
 
     /* Controls as wide as they need, then Status and Flash mem sharing the
@@ -1301,6 +1507,8 @@ static void redraw(void)
     draw_log(y, 0, COLS, bottom - y);
 
     draw_dialog();
+    /* Last, over a dialog or its shadow reaching it in a short window. */
+    draw_key_bar();
     refresh();
 }
 
@@ -1339,9 +1547,11 @@ static void shadow(int y, int x, int w, int h)
 static void button(int y, int x, attr_t attr, const char *text)
 {
     static const wchar_t right[] = { 0x2584, 0 };
-    wchar_t below[16];
+    wchar_t below[64];
     int i, n = strlen(text);
 
+    if (n > (int)ARRAY_SIZE(below))
+        n = ARRAY_SIZE(below);
     put(y, x, n, attr, "%s", text);
     if (plain())
         return; /* half blocks, which ASCII has nothing for */
@@ -1407,6 +1617,64 @@ static void message_box(const char *title, const char *msg)
     put(y + 2, x + 4, w - 5, BRIGHT(CP_warn), "%s", msg);
 }
 
+/* Opens the red message box with @title and @text, a sentence, over dialog
+ * @back, to which Enter or Esc returns. */
+static void show_message(int back, const char *title, const char *text)
+{
+    size_t n = strlen(text);
+
+    snprintf(msg_title, sizeof(msg_title), "%s", title);
+    snprintf(msg_text, sizeof(msg_text), "%s%s", text,
+             (n && (text[n - 1] == '.')) ? "" : ".");
+    msg_return = back;
+    dialog = DLG_message;
+}
+
+/* The message box, as the one of a dialog that does not fit: the text
+ * wrapped at blanks to fit the window. */
+/* Wraps @p at blanks into lines of at most @max characters: up to @nr_max
+ * of them, their starts in @lines and lengths in @len; returns how many. */
+static int wrap_text(const char *p, int max, const char **lines, int *len,
+                     int nr_max)
+{
+    int nr = 0;
+
+    while ((*p != '\0') && (nr < nr_max)) {
+        int n = strlen(p), cut;
+        if (n > max) {
+            for (cut = max; (cut > 0) && (p[cut] != ' '); cut--)
+                ;
+            n = (cut > 0) ? cut : max;
+        }
+        lines[nr] = p;
+        len[nr++] = n;
+        p += n;
+        while (*p == ' ')
+            p++;
+    }
+    return nr;
+}
+
+static void draw_message_box(void)
+{
+    const char *lines[8];
+    int len[8], nr, width = 0, i, y, x, w, max;
+
+    max = (COLS - 12 < 70) ? COLS - 12 : 70;
+    if (max < 16)
+        max = 16;
+    nr = wrap_text(msg_text, max, lines, len, ARRAY_SIZE(lines));
+    for (i = 0; i < nr; i++)
+        if (len[i] > width)
+            width = len[i];
+    w = width + 8;
+    colored_box(w, nr + 4, msg_title, COLOR_PAIR(CP_warn), BRIGHT(CP_warn),
+                &y, &x);
+    for (i = 0; i < nr; i++)
+        put(y + 2 + i, x + 4, len[i], BRIGHT(CP_warn), "%.*s", len[i],
+            lines[i]);
+}
+
 /* The face of button @nr of a dialog: green, or white when highlighted. */
 static attr_t button_attr(int nr)
 {
@@ -1449,14 +1717,14 @@ static void draw_display_dialog(void)
 {
     int w = 47, y, x, i;
 
-    dialog_box(w, 12, "Display type", &y, &x);
+    dialog_box(w, 14, "Display type", &y, &x);
     for (i = 0; i < DISP_nr; i++)
         radio_row(y + 2 + i, x + 3, w - 6, i == dialog_display,
                   i == dialog_display, display_label[i]);
-    put(y + 7, x + 3, w - 4, COLOR_PAIR(CP_dialog), "%s",
+    put(y + 9, x + 3, w - 4, COLOR_PAIR(CP_dialog), "%s",
         "Changing the display restarts the device.");
-    button(y + 9, x + 10, button_attr(0), "  OK  ");
-    button(y + 9, x + w - 10 - 10, button_attr(1), "  Cancel  ");
+    button(y + 11, x + 10, button_attr(0), "  OK  ");
+    button(y + 11, x + w - 10 - 10, button_attr(1), "  Cancel  ");
 }
 
 /* The FDD types to choose from, as radio buttons: what the keyboard stands
@@ -1487,6 +1755,11 @@ static void draw_fdd_type_dialog(void)
 static uint8_t rows_cfg[256];
 /* Whether the display has changed, which needs a power cycle anyway. */
 static bool rows_restart;
+/* What FF.CFG on the drive says about display-type, which overrides flash
+ * on every boot: nothing, or another value, in a file that can be changed,
+ * a directory's or a mounted disk's, or not, an image's. */
+static enum { ROWS_FILE_none, ROWS_FILE_writable, ROWS_FILE_image } rows_file;
+static char rows_file_value[64];
 
 /* The value of option @name in @cfg, into @buf. */
 static void option_value(const void *cfg, const char *name, char *buf,
@@ -1500,27 +1773,80 @@ static void option_value(const void *cfg, const char *name, char *buf,
     buf[0] = '\0';
 }
 
-static void draw_rows_dialog(void)
+/* Whether display-type in @cfg suits display @d: an LED display is found
+ * only when the firmware looks for a display by itself. */
+static bool display_type_fits(const void *cfg, int d)
+{
+    return DISP_IS_LED(d) ? emu_flash_display_auto(cfg)
+        : emu_flash_display_fits(cfg, DISP_HEIGHT(d));
+}
+
+/* Sets display-type in @cfg to suit the display fitted. */
+static void fit_display_type(void *cfg)
+{
+    if (DISP_IS_LED(config.display))
+        emu_flash_set_display_auto(cfg);
+    else
+        emu_flash_set_oled_rows(cfg, DISP_HEIGHT(config.display));
+}
+
+/* Sets display-type for the display fitted into a copy of @rows_cfg, giving
+ * its value before in @now and after in @then. */
+static void rows_values(char *now, char *then, size_t size)
 {
     uint8_t cfg[256];
-    char now[64], then[64], line1[96], line2[96];
-    int w, y, x;
 
     memcpy(cfg, rows_cfg, sizeof(cfg));
-    option_value(cfg, "display-type", now, sizeof(now));
-    emu_flash_set_oled_rows(cfg, DISP_HEIGHT(config.display));
-    option_value(cfg, "display-type", then, sizeof(then));
+    option_value(cfg, "display-type", now, size);
+    fit_display_type(cfg);
+    option_value(cfg, "display-type", then, size);
+}
+
+/* Looks at display-type in FF.CFG on the drive, for the rows dialog: set
+ * there to other than @then, it would undo the change on the next boot. */
+static void rows_check_file(const char *then)
+{
+    struct usb_info usb;
+
+    rows_file = ROWS_FILE_none;
+    if (!ff_cfg_file_option("display-type", rows_file_value,
+                            sizeof(rows_file_value))
+        || !strcmp(rows_file_value, then))
+        return;
+    usb_get_info(&usb);
+    rows_file = (usb.kind == USB_image) ? ROWS_FILE_image : ROWS_FILE_writable;
+}
+
+static void draw_rows_dialog(void)
+{
+    char now[64], then[64], line1[96], line2[96], line3[160];
+    int w, y, x, h = 8;
+
+    rows_values(now, then, sizeof(now));
     snprintf(line1, sizeof(line1), "Flash mem has display-type = %s.", now);
     snprintf(line2, sizeof(line2), "Change it to %s?", then);
+    line3[0] = '\0';
+    if (rows_file == ROWS_FILE_writable)
+        snprintf(line3, sizeof(line3), "FF.CFG on the drive sets %s too: it "
+                 "is changed as well.", rows_file_value);
+    else if (rows_file == ROWS_FILE_image)
+        snprintf(line3, sizeof(line3), "FF.CFG in the drive's image sets %s "
+                 "and will override this on boot.", rows_file_value);
     w = ((strlen(line1) > strlen(line2)) ? strlen(line1) : strlen(line2)) + 8;
+    if ((int)strlen(line3) + 8 > w)
+        w = strlen(line3) + 8;
     if (w < 32)
         w = 32;
+    if (line3[0] != '\0')
+        h++;
 
-    dialog_box(w, 8, "Display type", &y, &x);
+    dialog_box(w, h, "Display type", &y, &x);
     put(y + 2, x + 4, w - 5, COLOR_PAIR(CP_dialog), "%s", line1);
     put(y + 3, x + 4, w - 5, COLOR_PAIR(CP_dialog), "%s", line2);
-    button(y + 5, x + w / 2 - 12, button_attr(0), "  Yes  ");
-    button(y + 5, x + w / 2 + 4, button_attr(1), "  No  ");
+    if (line3[0] != '\0')
+        put(y + 4, x + 4, w - 5, COLOR_PAIR(CP_dialog), "%s", line3);
+    button(y + h - 3, x + w / 2 - 12, button_attr(0), "  Yes  ");
+    button(y + h - 3, x + w / 2 + 4, button_attr(1), "  No  ");
 }
 
 /* The display that display-type in flash asks for, once the Flash mem
@@ -1574,13 +1900,22 @@ static void draw_dialog(void)
     case DLG_fdd_type:
         draw_fdd_type_dialog();
         break;
+    case DLG_fdfile:
+        draw_fdfile_dialog();
+        break;
+    case DLG_message:
+        /* Over the dialog it came from. */
+        if (msg_return == DLG_flash)
+            draw_flash_dialog();
+        draw_message_box();
+        break;
     }
 }
 
 /* What a key did in a dialog. */
 enum {
     DK_none, DK_taken, DK_quit, DK_display, DK_rows_yes, DK_rows_no,
-    DK_emul_yes, DK_emul_no, DK_fdd_type
+    DK_emul_yes, DK_emul_no, DK_fdd_type, DK_fdfile_yes, DK_fdfile_no
 };
 
 /* Gives @key to the dialog, if one is open. */
@@ -1595,7 +1930,8 @@ static int dialog_key(int key)
         return DK_taken;
     }
 
-    if ((dialog == DLG_quit) || (dialog == DLG_rows) || (dialog == DLG_emul)) {
+    if ((dialog == DLG_quit) || (dialog == DLG_rows) || (dialog == DLG_emul)
+        || (dialog == DLG_fdfile)) {
         if ((key == 'y') || (key == 'Y')) {
             dialog_button = 0;
             key = '\n';
@@ -1612,6 +1948,18 @@ static int dialog_key(int key)
         dialog_display--;
     } else if ((key == KEY_DOWN) && (dialog_display < DISP_nr - 1)) {
         dialog_display++;
+    }
+
+    /* The fdfile dialog goes back to the Flash mem dialog on Esc, its edits
+     * kept. */
+    if (dialog == DLG_fdfile) {
+        if ((key != 27) && (key != '\n'))
+            return DK_taken;
+        if (key == 27) {
+            dialog = DLG_flash;
+            return DK_taken;
+        }
+        return (dialog_button == 0) ? DK_fdfile_yes : DK_fdfile_no;
     }
 
     /* The rows and emul dialogs have no way back: the display or the flash
@@ -1771,7 +2119,10 @@ static void set_display(int display)
         rc_save();
     }
     emu_flash_get(rows_cfg);
-    if (!emu_flash_display_fits(rows_cfg, DISP_HEIGHT(display))) {
+    if (!display_type_fits(rows_cfg, display)) {
+        char now[64], then[64];
+        rows_values(now, then, sizeof(now));
+        rows_check_file(then);
         dialog = DLG_rows;
         dialog_button = 0;
         return;
@@ -1798,7 +2149,10 @@ static void set_fdd_type(int type)
  * into flash and power-cycles the device.
  */
 
-enum { FV_radio, FV_check, FV_input, FV_ok, FV_cancel };
+enum { FV_radio, FV_check, FV_input, FV_ok, FV_cancel, FV_save_all,
+       FV_save_changed };
+/* The buttons, the last entries of fviews[], on one row. */
+#define FD_BUTTONS 4
 
 /* The width of each column, so that the dialog with its shadow fits 99
  * columns; and in each, where the fields of input lines start. */
@@ -1827,80 +2181,101 @@ static struct fview {
     char text[64];      /* an input line */
 } fviews[] = {
     { FV_radio, 0, "display-~t~ype", "display-type",
-      "Display: found by itself, or an OLED of 32 or 64 rows",
+      "Type of the display connected",
       { "auto", "oled-128x32", "oled-128x64" }, false, true },
-    { FV_check, 0, "display-type suffi~x~es", "display-type",
-      "OLED view: turned 180 degrees, flipped, narrowed to the Gotek's "
-      "cutout, inverse",
+    { FV_check, 0, "display-type suffi~x~", "display-type",
+      "Options for OLED displays",
       { "rotate", "hflip", "narrow", "narrower", "inverse", "ztech",
         "slow" }, false, true },
     { FV_radio, 0, "oled-~f~ont", "oled-font",
-      "OLED font: narrow 6x13, or wide 8x16",
+      "Font of the OLED display",
       { "6x13", "8x16" }, false, true },
     { FV_radio, 0, "s~h~ow-filename-ext", "show-filename-ext",
       "Whether to show floppy filename extensions",
       { "no", "yes", "auto" }, false, true },
     { FV_input, 0, "~d~isplay-order", "display-order",
-      "Rows top down: content 0-3, 7 for blank, d for double height; or "
-      "default", { NULL }, false, false },
+      "Rows top down: 0=name, 1=status, 2=info, 3=folder, 7=blank, "
+      "d=double-height; e.g. \"3,0d,1\"", { NULL }, false, false },
     { FV_input, 0, "display-~o~ff-secs", "display-off-secs",
-      "Display off after seconds without activity: 0 always off, 255 never",
+      "Seconds without activity before the display goes dark, 0-255: 0 is "
+      "always off, 255 never",
       { NULL }, false, false },
     { FV_input, 0, "display-scroll-~r~ate", "display-scroll-rate",
-      "Long names scroll a step every so many milliseconds, 100 or more",
+      "Milliseconds per step of a long name scroll, 100..65535: less is "
+      "faster",
       { NULL }, false, false },
     { FV_input, 0, "display-scroll-~p~ause", "display-scroll-pause",
-      "Pause at both ends of a scroll, milliseconds: 0 scrolls endlessly",
+      "Milliseconds a long name scroll rests at each end, 0..65535: 0 "
+      "scrolls without rest",
       { NULL }, false, false },
     { FV_input, 0, "nav-scroll-r~a~te", "nav-scroll-rate",
-      "While navigating, long names scroll a step every so many "
-      "milliseconds", { NULL }, false, false },
+      "Milliseconds per scroll step while browsing, 0..65535: less is faster",
+      { NULL }, false, false },
     { FV_input, 0, "nav-scroll-pa~u~se", "nav-scroll-pause",
-      "While navigating, pause before a long name scrolls, milliseconds",
+      "Milliseconds before a long name starts to scroll while browsing, "
+      "0..65535",
       { NULL }, false, false },
     { FV_radio, 1, "nav-~m~ode", "nav-mode",
-      "Navigation: native through images and folders, indexed through "
-      "DSKA0000..., default by HxC config", { "default", "indexed", "native" },
+      "How floppies are found on the USB drive",
+      { "default", "indexed", "native" },
       false, true },
     { FV_radio, 1, "folder-~s~ort", "folder-sort",
-      "Sort folders always (big ones may be cut), never (FAT order), or "
-      "small ones only", { "always", "never", "small" }, false, true },
+      "A sorted folder must fit in RAM: \"always\" cuts big ones, \"small\" "
+      "leaves big ones in FAT order",
+      { "always", "never", "small" }, false, true },
     { FV_radio, 1, "sort-pr~i~ority", "sort-priority",
-      "Folders before files, files before folders, or no difference",
+      "Where the folders go in a sorted folder: before the files, after "
+      "them, or mixed by name",
       { "folders", "files", "none" }, false, true },
     { FV_check, 1, NULL, "nav-loop",
-      "Wrap around at the first and the last slot or folder entry",
+      "Whether file/folder navigation loops from the last item to the first "
+      "one and vice versa",
       { "nav-~l~oop" }, true, true },
     { FV_input, 1, "autos~e~lect-file-secs", "autoselect-file-secs",
-      "Open the current file after so many seconds: 0 never",
+      "Seconds a highlighted floppy waits before auto-insert, 0..255: 0 "
+      "waits for a button",
       { NULL }, false, false },
     { FV_input, 1, "autoselect-folder-se~c~s", "autoselect-folder-secs",
-      "Open the current folder after so many seconds: 0 never",
+      "Seconds a highlighted folder waits before it is entered, 0..255: 0 "
+      "waits for a button",
       { NULL }, false, false },
     { FV_input, 1, "i~n~dexed-prefix", "indexed-prefix",
-      "Image name prefix in indexed mode, up to 7 characters",
+      "For \"nav-mode = indexed\", gives the prefix to the floppy numbers, "
+      "up to 7 chars or empty",
       { NULL }, false, false },
     { FV_radio, 2, "t~w~obutton-action", "twobutton-action",
-      "Two buttons: Prev/Next with both for slot 0 or eject, +10/+1, or "
-      "rotary", { "zero", "eject", "rotary", "rotary-fast", "htu" },
+      "What the two front buttons do",
+      { "zero", "eject", "rotary", "rotary-fast", "htu" },
       false, false },
     { FV_check, 2, NULL, "twobutton-action",
-      "Swap the two buttons", { "re~v~erse" }, false, true },
+      "Swap the left and right buttons", { "re~v~erse" }, false, true },
     { FV_radio, 2, "ima~g~e-on-startup", "image-on-startup",
-      "Image at startup: the last selected, static from INIT_A.CFG, or the "
-      "first", { "last", "static", "init" }, false, false },
+      "Floppy chosen on startup", { "last", "static", "init" }, false, false },
     { FV_check, 2, NULL, "ejected-on-startup",
-      "Start with the image ejected", { "e~j~ected-on-startup" }, true, true },
+      "Power up with the floppy ejected, until a button inserts it",
+      { "e~j~ected-on-startup" }, true, true },
     { FV_input, 2, "notif~y~-volume", "notify-volume",
-      "Volume of the insert, eject and slot beeps: 0 to 15",
+      "Speaker volume of the insert, eject and floppy-number beeps, 0..15: 0 "
+      "is silent",
       { NULL }, false, false },
     { FV_check, 2, NULL, "notify-volume",
-      "Beep the number of the slot when an image is mounted",
+      "Beep the floppy number when a floppy is inserted: long beeps count as "
+      "5, short - as 1",
       { "slotnr" }, false, true },
     { FV_ok, 0, NULL, NULL,
-      "Write the changed options into flash, and power-cycle the device",
+      "Write the changed options into flash and power-cycle; FF.CFG on the "
+      "drive is checked first",
       { NULL }, false, false },
-    { FV_cancel, 0, NULL, NULL, "Close, leaving flash as it is",
+    { FV_cancel, 0, NULL, NULL,
+      "Close without writing anything; flash and FF.CFG stay as they are",
+      { NULL }, false, false },
+    { FV_save_all, 0, NULL, NULL,
+      "Write all options to FF.CFG on the USB drive as shown, old one kept "
+      "as .BAK; flash unchanged",
+      { NULL }, false, false },
+    { FV_save_changed, 0, NULL, NULL,
+      "Write the options that differ from flash to FF.CFG, old one kept as "
+      ".BAK; flash unchanged",
       { NULL }, false, false }
 };
 #define FD_NR ARRAY_SIZE(fviews)
@@ -1918,7 +2293,8 @@ static const char * const fd_opts[] = {
 static char fd_orig[ARRAY_SIZE(fd_opts)][64];
 
 static int fd_focus, fd_w, fd_h;
-static char fd_error[160];
+/* What the last Save did, on the bottom line until the next key. */
+static char fd_note[160];
 
 /* @s without its '~' marks, into @buf. */
 static const char *unmarked(const char *s, char *buf, size_t size)
@@ -2133,11 +2509,13 @@ static void fd_value(const char *opt, char *buf, size_t size)
     }
 }
 
-/* What the dialog edits, above its columns. */
-static const char * const fd_explanation[2] = {
-    "Here are settings stored in the device flash memory.",
-    "The values are overwritten by FF.CFG on start."
-};
+/* What the dialog edits, above its columns: one paragraph, wrapped to the
+ * dialog's width. */
+static const char fd_explanation[] =
+    "Here are settings stored in the device flash memory. The values are "
+    "overwritten by FF.CFG on start. Only options supported by ffemu are "
+    "offered here.";
+#define FD_EXPL_MAX 4
 
 /* Whether fview @i is disabled: the display-type suffixes, which only an
  * OLED display type has, while another is chosen. */
@@ -2159,15 +2537,37 @@ static void fd_step(int dir)
     while (fd_disabled(fd_focus));
 }
 
+/* Whether fview @i is one of the buttons. */
+static bool fd_is_button(int i)
+{
+    return i >= (int)FD_NR - FD_BUTTONS;
+}
+
+static const char *fd_button_text(int type)
+{
+    switch (type) {
+    case FV_ok: return "   OK   ";
+    case FV_cancel: return " Cancel ";
+    case FV_save_all: return " Save all to FF.CFG ";
+    case FV_save_changed: return " Save diff-from-flash to FF.CFG ";
+    }
+    return "";
+}
+
 static void fd_layout(void)
 {
-    int col_y[3] = { 5, 5, 5 }, col_x[3], h = 0, i, n;
+    const char *lines[FD_EXPL_MAX];
+    int col_y[3], col_x[3], len[FD_EXPL_MAX], h = 0, i, n;
     char label[40];
     struct fview *v;
 
     col_x[0] = 2;
     col_x[1] = col_x[0] + fd_col_w[0] + 2;
     col_x[2] = col_x[1] + fd_col_w[1] + 2;
+    fd_w = col_x[2] + fd_col_w[2] + 2;
+    /* The paragraph starts on row 2; the columns a row below it. */
+    col_y[0] = col_y[1] = col_y[2] = 3
+        + wrap_text(fd_explanation, fd_w - 4, lines, len, FD_EXPL_MAX);
     fd_field[0] = fd_field[1] = fd_field[2] = 0;
     for (i = 0; i < (int)FD_NR; i++) {
         v = &fviews[i];
@@ -2180,7 +2580,7 @@ static void fd_layout(void)
 
     for (i = 0; i < (int)FD_NR; i++) {
         v = &fviews[i];
-        if ((v->type == FV_ok) || (v->type == FV_cancel))
+        if (fd_is_button(i))
             continue;
         v->x = col_x[v->col];
         v->y = col_y[v->col];
@@ -2189,11 +2589,22 @@ static void fd_layout(void)
         if (col_y[v->col] > h)
             h = col_y[v->col];
     }
-    fd_w = col_x[2] + fd_col_w[2] + 2;
     fd_h = h + 5;
-    fviews[FD_NR - 2].y = fviews[FD_NR - 1].y = fd_h - 4;
-    fviews[FD_NR - 2].x = fd_w / 2 - 14;
-    fviews[FD_NR - 1].x = fd_w / 2 + 4;
+    /* OK and Cancel at the bottom, the two FF.CFG buttons one over the
+     * other at the right, among the controls, below the third column's
+     * fields. */
+    n = fd_h - 8;
+    if (n < col_y[2]) {
+        fd_h += col_y[2] - n;
+        n = col_y[2];
+    }
+    fviews[FD_NR - 4].y = fviews[FD_NR - 3].y = fd_h - 4;
+    fviews[FD_NR - 4].x = fd_w / 2 - 14;
+    fviews[FD_NR - 3].x = fd_w / 2 + 4;
+    fviews[FD_NR - 2].y = n;
+    fviews[FD_NR - 1].y = n + 2;
+    fviews[FD_NR - 2].x = fviews[FD_NR - 1].x =
+        fd_w - 3 - strlen(fd_button_text(FV_save_changed));
 }
 
 static void fd_open(void)
@@ -2219,15 +2630,17 @@ static void fd_open(void)
     }
     fd_layout();
     fd_focus = 0;
-    fd_error[0] = '\0';
+    fd_note[0] = '\0';
     dialog = DLG_flash;
 }
 
 /* Writes the options changed into flash: TRUE if any were, FALSE if none
- * were or one cannot be, which @fd_error then says. */
-static bool fd_apply(void)
+ * were or one cannot be, which a message box then says. */
+/* The configuration in flash with the dialog's edits applied, into @cfg:
+ * 1 if an edit changed it, 0 if none did, -1 for a value that its option
+ * does not take, which a message box reports. */
+static int fd_edited(uint8_t *cfg)
 {
-    uint8_t cfg[256];
     char value[80];
     bool changed = false;
     unsigned int i, j;
@@ -2240,25 +2653,97 @@ static bool fd_apply(void)
             || (!fd_orig[i][0] && !strcmp(value, "\"\"")))
             continue;
         if (emu_flash_set_option(cfg, fd_opts[i], value) != EMU_SET_ok) {
-            snprintf(fd_error, sizeof(fd_error),
-                     "%s = %s: not a value that it takes", fd_opts[i],
-                     value);
+            char text[160];
+            snprintf(text, sizeof(text), "%s = %s: not a value that it takes",
+                     fd_opts[i], value);
+            show_message(DLG_flash, "Flash mem", text);
             for (j = 0; j < FD_NR; j++)
                 if (fviews[j].opt && !strcmp(fviews[j].opt, fd_opts[i]))
                     break;
             fd_focus = j;
-            return false;
+            return -1;
         }
         changed = true;
     }
-    if (changed)
-        emu_flash_save(cfg, emu_flash_cfg_size());
     return changed;
+}
+
+/* Writes the dialog's edits into flash; whether any changed it. */
+/* The options OK changes that FF.CFG on the drive sets to another value,
+ * which would undo the change on the next boot, for the fdfile dialog; the
+ * configuration to write once it has asked what to do about them, and
+ * display-type as it was, for the emul dialog. */
+static bool fd_offer_display(const char *old_type);
+
+#define FDF_MAX 4
+static struct {
+    const char *opt;
+    char value[64], file[64];
+} fdf[FDF_MAX];
+static int fdf_nr;
+static bool fdf_writable;
+static uint8_t fdf_cfg[256];
+static char fdf_old_type[64];
+
+static void fd_check_file(const uint8_t *cfg)
+{
+    struct usb_info usb;
+    char text[80], value[64], file[64];
+    unsigned int i;
+
+    fdf_nr = 0;
+    for (i = 0; (i < ARRAY_SIZE(fd_opts)) && (fdf_nr < FDF_MAX); i++) {
+        fd_value(fd_opts[i], text, sizeof(text));
+        if (!strcmp(text, fd_orig[i]))
+            continue;
+        option_value(cfg, fd_opts[i], value, sizeof(value));
+        if (!ff_cfg_file_option(fd_opts[i], file, sizeof(file))
+            || !strcmp(file, value))
+            continue;
+        fdf[fdf_nr].opt = fd_opts[i];
+        snprintf(fdf[fdf_nr].value, sizeof(fdf[fdf_nr].value), "%s", value);
+        snprintf(fdf[fdf_nr].file, sizeof(fdf[fdf_nr].file), "%s", file);
+        fdf_nr++;
+    }
+    usb_get_info(&usb);
+    fdf_writable = (usb.kind != USB_image);
+}
+
+/* Writes @cfg into flash and power-cycles the device, unless display-type
+ * no longer suits the display fitted, which the emul dialog takes up. */
+static void fd_commit(const uint8_t *cfg)
+{
+    emu_flash_save(cfg, emu_flash_cfg_size());
+    dialog = DLG_none;
+    if (!fd_offer_display(fdf_old_type))
+        leave(KEY_ACT_reset);
+}
+
+static void draw_fdfile_dialog(void)
+{
+    const char *head = fdf_writable
+        ? "FF.CFG on the drive sets, and would restore on boot:"
+        : "FF.CFG in the drive's image sets, and will restore on boot:";
+    const char *ask = fdf_writable ? "Change it in FF.CFG as well?"
+        : "Write flash anyway?";
+    int w = strlen(head) + 8, h = 7 + fdf_nr, y, x, i;
+
+    dialog_box(w, h, "Flash mem", &y, &x);
+    put(y + 2, x + 4, w - 5, COLOR_PAIR(CP_dialog), "%s", head);
+    for (i = 0; i < fdf_nr; i++)
+        put(y + 3 + i, x + 6, w - 7, COLOR_PAIR(CP_dialog), "%s = %s",
+            fdf[i].opt, fdf[i].file);
+    put(y + 3 + fdf_nr, x + 4, w - 5, COLOR_PAIR(CP_dialog), "%s", ask);
+    button(y + h - 3, x + w / 2 - 12, button_attr(0),
+           fdf_writable ? "  Yes  " : "  OK  ");
+    button(y + h - 3, x + w / 2 + 4, button_attr(1),
+           fdf_writable ? "  No  " : " Back ");
 }
 
 /* Opens the emul dialog if display-type in flash has changed and no longer
  * suits the display fitted, while another emulated display would suit it:
- * the same chip with the other number of rows. */
+ * an OLED of the rows it names, of the same chip, or on an SSD1306 when an
+ * LED display is fitted. */
 static bool fd_offer_display(const char *old_type)
 {
     uint8_t cfg[256];
@@ -2268,13 +2753,12 @@ static bool fd_offer_display(const char *old_type)
 
     emu_flash_get(cfg);
     option_value(cfg, "display-type", type, sizeof(type));
-    if (!strcmp(type, old_type)
-        || emu_flash_display_fits(cfg, DISP_HEIGHT(config.display)))
+    if (!strcmp(type, old_type) || display_type_fits(cfg, config.display))
         return false;
     rows = emu_flash_display_fits(cfg, 64) ? 64
         : emu_flash_display_fits(cfg, 32) ? 32 : 0;
     for (d = 0; d < DISP_nr; d++)
-        if ((DISP_HEIGHT(d) == rows)
+        if (!DISP_IS_LED(d) && (DISP_HEIGHT(d) == rows)
             && (DISP_IS_SH1106(d) == DISP_IS_SH1106(config.display)))
             break;
     if (d == DISP_nr)
@@ -2312,8 +2796,9 @@ static void fd_key(int key)
     struct fview *v = &fviews[fd_focus];
     int n = (v->type == FV_radio) || (v->type == FV_check) ? fd_rows(v) : 0;
     uint8_t cfg[256];
-    char old_type[64];
     unsigned int i;
+
+    fd_note[0] = '\0';
 
     /* Only the message is on the screen: nothing to edit blindly. */
     if (!fd_fits()) {
@@ -2322,7 +2807,6 @@ static void fd_key(int key)
         return;
     }
 
-    fd_error[0] = '\0';
     switch (key) {
     case 27:
         dialog = DLG_none;
@@ -2338,14 +2822,41 @@ static void fd_key(int key)
             dialog = DLG_none;
             return;
         }
+        if ((v->type == FV_save_all) || (v->type == FV_save_changed)) {
+            /* The file says what the dialog shows, edits included, and
+             * nothing else moves: flash waits for OK, and the firmware
+             * reads the file when the drive is next inserted. */
+            if (fd_edited(cfg) < 0)
+                return;
+            if (!ff_cfg_write(cfg, v->type == FV_save_all, fd_note,
+                              sizeof(fd_note))) {
+                show_message(DLG_flash, "FF.CFG", fd_note);
+                fd_note[0] = '\0';
+                return;
+            }
+            host_log("%s", fd_note);
+            return;
+        }
         emu_flash_get(cfg);
-        option_value(cfg, "display-type", old_type, sizeof(old_type));
-        if (fd_apply()) {
-            dialog = DLG_none;
-            if (!fd_offer_display(old_type))
-                leave(KEY_ACT_reset);
-        } else if (!fd_error[0]) {
-            dialog = DLG_none;
+        option_value(cfg, "display-type", fdf_old_type,
+                     sizeof(fdf_old_type));
+        {
+            int r = fd_edited(cfg);
+            if (r < 0)
+                return;
+            if (r == 0) {
+                dialog = DLG_none;
+                return;
+            }
+            /* FF.CFG on the drive would undo an edit on the next boot. */
+            fd_check_file(cfg);
+            if (fdf_nr != 0) {
+                memcpy(fdf_cfg, cfg, sizeof(fdf_cfg));
+                dialog = DLG_fdfile;
+                dialog_button = 0;
+                return;
+            }
+            fd_commit(cfg);
         }
         return;
     case KEY_UP:
@@ -2361,8 +2872,11 @@ static void fd_key(int key)
             fd_step(1);
         return;
     case KEY_LEFT: case KEY_RIGHT:
-        if ((v->type == FV_ok) || (v->type == FV_cancel))
-            fd_focus = (v->type == FV_ok) ? FD_NR - 1 : FD_NR - 2;
+        if (fd_is_button(fd_focus)) {
+            int first = FD_NR - FD_BUTTONS, k = fd_focus - first;
+            k = (k + ((key == KEY_RIGHT) ? 1 : FD_BUTTONS - 1)) % FD_BUTTONS;
+            fd_focus = first + k;
+        }
         return;
     case ' ':
         if (v->type == FV_check) {
@@ -2400,6 +2914,104 @@ static void fd_key(int key)
     }
 }
 
+/* The help of each radio button and check box that has one: its option, its
+ * item, and the text. */
+static const struct {
+    const char *opt, *item, *help;
+} fd_item_help[] = {
+    { "display-type", "auto",
+      "Type of the display connected: attempt detecting, including "
+      "7-segment LED" },
+    { "display-type", "oled-128x32",
+      "Type of the display connected" },
+    { "display-type", "oled-128x64",
+      "Type of the display connected" },
+    { "display-type", "rotate",
+      "Options for OLED displays: rotate the image 180 degrees, for "
+      "displays installed upside-down" },
+    { "display-type", "hflip",
+      "Options for OLED displays: mirror horizontally, for displays of "
+      "such pixel layout" },
+    { "display-type", "narrow",
+      "Options for OLED displays: for 6x13 font, show only 18 text "
+      "columns, for small case cutouts" },
+    { "display-type", "narrower",
+      "Options for OLED displays: for 6x13 font, show only 16 text "
+      "columns, for small case cutouts" },
+    { "display-type", "inverse",
+      "Options for OLED displays: invert the image, printing "
+      "black-on-bright" },
+    { "oled-font", "6x13",
+      "Makes 21 columns; with \"narrower\" suffix to \"display-type\" it "
+      "fits the smallest case cutout" },
+    { "oled-font", "8x16",
+      "Makes 16 columns; ignores \"narrow\" and \"narrower\" suffixes to "
+      "\"display-type\"" },
+    { "show-filename-ext", "no",
+      "Never show floppy filename extensions" },
+    { "show-filename-ext", "yes",
+      "Always show floppy filename extensions" },
+    { "show-filename-ext", "auto",
+      "Show extensions only for duplicate names in sorted folders; in "
+      "unsorted ones always show them" },
+    { "nav-mode", "default",
+      "Works as \"native\" unless HXCSDFE.CFG overrides" },
+    { "nav-mode", "indexed",
+      "Instead of browsing, look for fixed floppy names like DSKA0000 "
+      "(see \"indexed-prefix\")" },
+    { "nav-mode", "native",
+      "Browse actual files and folders on the storage" },
+    { "twobutton-action", "zero",
+      "Left: previous floppy, right: next floppy, hold: cycle; both "
+      "together: go to first" },
+    { "twobutton-action", "eject",
+      "Left: previous floppy, right: next floppy; both together: eject or "
+      "insert the floppy" },
+    { "twobutton-action", "rotary",
+      "Left: go to parent folder; right: select; useful when having a "
+      "rotary encoder" },
+    { "twobutton-action", "rotary-fast",
+      "Left: previous floppy, right: next floppy, hold: cycle; both "
+      "together: go to parent folder" },
+    { "twobutton-action", "htu",
+      "Enter floppy number by digits: left adds a ten, right a one; both "
+      "a hundred, hold 1s for 000" },
+    { "image-on-startup", "last",
+      "On startup, choose the floppy from IMAGE_A.CFG" },
+    { "image-on-startup", "static",
+      "On startup, choose the floppy from INIT_A.CFG" },
+    { "image-on-startup", "init",
+      "On startup, choose the first floppy in the root folder" },
+    { "display-type", "ztech",
+      "Options for OLED displays: the ZHONGJY_TECH 2.23-inch 128x32 "
+      "SSD1305 display" },
+    { "display-type", "slow",
+      "Options for OLED displays: run the I2C bus slower, if the display "
+      "blanks or garbles" },
+};
+
+/* The help of the control in focus: of the item under the cursor, for a
+ * cluster whose item has one, else the control's own. */
+static const char *fd_help(void)
+{
+    const struct fview *v = &fviews[fd_focus];
+    char item[32];
+    unsigned int i;
+    int k;
+
+    if ((v->type != FV_radio) && (v->type != FV_check))
+        return v->help;
+    k = (v->type == FV_radio) ? v->cur : fd_item_of_row(v, v->cur);
+    if (k >= fd_nr_items(v))
+        return v->help;
+    unmarked(v->items[k], item, sizeof(item));
+    for (i = 0; i < ARRAY_SIZE(fd_item_help); i++)
+        if (!strcmp(fd_item_help[i].opt, v->opt)
+            && !strcmp(fd_item_help[i].item, item))
+            return fd_item_help[i].help;
+    return v->help;
+}
+
 static void draw_flash_dialog(void)
 {
     attr_t label, item;
@@ -2410,9 +3022,14 @@ static void draw_flash_dialog(void)
         return;
     }
     dialog_box(fd_w, fd_h, "Flash mem", &y0, &x0);
-    for (i = 0; i < (int)ARRAY_SIZE(fd_explanation); i++)
-        put(y0 + 2 + i, x0 + 2, fd_w - 4, COLOR_PAIR(CP_dialog), "%s",
-            fd_explanation[i]);
+    {
+        const char *lines[FD_EXPL_MAX];
+        int len[FD_EXPL_MAX], n;
+        n = wrap_text(fd_explanation, fd_w - 4, lines, len, FD_EXPL_MAX);
+        for (i = 0; i < n; i++)
+            put(y0 + 2 + i, x0 + 2, len[i], COLOR_PAIR(CP_dialog), "%.*s",
+                len[i], lines[i]);
+    }
     for (i = 0; i < (int)FD_NR; i++) {
         struct fview *v = &fviews[i];
         bool focused = (i == fd_focus), off = fd_disabled(i);
@@ -2470,22 +3087,31 @@ static void draw_flash_dialog(void)
             break;
         }
         case FV_ok:
+            /* The default button, unless another button has the focus. */
             button(y, x, focused ? BRIGHT(CP_button_on)
-                   : (fd_focus == (int)FD_NR - 1) ? COLOR_PAIR(CP_button)
-                   : BRIGHT(CP_button_def), "   OK   ");
+                   : fd_is_button(fd_focus) ? COLOR_PAIR(CP_button)
+                   : BRIGHT(CP_button_def), fd_button_text(v->type));
             break;
         case FV_cancel:
+        case FV_save_all:
+        case FV_save_changed:
             button(y, x, focused ? BRIGHT(CP_button_on)
-                   : COLOR_PAIR(CP_button), " Cancel ");
+                   : COLOR_PAIR(CP_button), fd_button_text(v->type));
             break;
         }
     }
 
-    /* What the option in focus is, or what is wrong, on the bottom line. */
-    put(LINES - 1, 0, COLS, COLOR_PAIR(CP_bar), "%*s", COLS, "");
-    put(LINES - 1, 1, COLS - 2, fd_error[0] ? COLOR_PAIR(CP_hotkey)
-        : COLOR_PAIR(CP_bar), "%s",
-        fd_error[0] ? fd_error : fviews[fd_focus].help);
+    /* What the control in focus is, on the dialog's last row; or what the
+     * last Save did, in green. A text too long for the row is cut at the
+     * frame, where a bright green mark says so, as in the panes. */
+    {
+        const char *t = fd_note[0] ? fd_note : fd_help();
+        int hy = y0 + fd_h - 2, room = fd_w - 3;
+        put(hy, x0 + 2, room, fd_note[0] ? BRIGHT(CP_bar_crop)
+            : COLOR_PAIR(CP_dlg_help), "%s", t);
+        if ((int)strlen(t) > room)
+            put(hy, x0 + fd_w - 1, 1, BRIGHT(CP_bar_crop), ">");
+    }
 }
 
 /* The FDD action of @key, or -1: the keys under the signals in the Controls
@@ -2525,6 +3151,11 @@ static void handle_key(int key)
         return;
     }
 
+    if (dialog == DLG_message) {
+        if ((key == '\n') || (key == 27) || (key == ' '))
+            dialog = msg_return;
+        return;
+    }
     if (dialog == DLG_flash) {
         fd_key(key);
         return;
@@ -2538,10 +3169,18 @@ static void handle_key(int key)
     case DK_display:
         set_display(dialog_display);
         return;
-    case DK_rows_yes:
-        emu_flash_set_oled_rows(rows_cfg, DISP_HEIGHT(config.display));
+    case DK_rows_yes: {
+        char then[64], msg[160];
+        fit_display_type(rows_cfg);
         emu_flash_save(rows_cfg, emu_flash_cfg_size());
+        /* FF.CFG on the drive would undo it on the next boot. */
+        if (rows_file == ROWS_FILE_writable) {
+            option_value(rows_cfg, "display-type", then, sizeof(then));
+            ff_cfg_set_option("display-type", then, msg, sizeof(msg));
+            host_log("%s", msg);
+        }
         leave(KEY_ACT_reset);
+    }
     case DK_rows_no:
         if (rows_restart)
             leave(KEY_ACT_reset);
@@ -2554,6 +3193,24 @@ static void handle_key(int key)
         leave(KEY_ACT_reset);
     case DK_fdd_type:
         set_fdd_type(dialog_fdd_type);
+        return;
+    case DK_fdfile_yes: {
+        char msg[160];
+        int i;
+        if (fdf_writable) {
+            for (i = 0; i < fdf_nr; i++) {
+                ff_cfg_set_option(fdf[i].opt, fdf[i].value, msg, sizeof(msg));
+                host_log("%s", msg);
+            }
+        }
+        fd_commit(fdf_cfg);
+        return;
+    }
+    case DK_fdfile_no:
+        if (fdf_writable)
+            fd_commit(fdf_cfg);
+        else
+            dialog = DLG_flash;
         return;
     }
 
@@ -2623,6 +3280,7 @@ static void *tui_thread(void *unused)
     int key, rc, i;
     wint_t ch;
 
+    fitted_display = config.display;
     initscr();
     cbreak();
     noecho();
@@ -2632,9 +3290,12 @@ static void *tui_thread(void *unused)
     key_ctrl_pgup = ctrl_key("kPRV5", "\033[5;5~", KEY_MAX + 0x101);
     key_ctrl_pgdn = ctrl_key("kNXT5", "\033[6;5~", KEY_MAX + 0x102);
     curs_set(0);
-    /* Long enough for the rest of a key's sequence to come late, as it can
-     * over ssh to a virtual machine; a lone Esc is held back that long. */
-    set_escdelay(200);
+    /* A lone Esc is held back this long for the rest of a key's sequence:
+     * htop's 25 ms where the terminal writes it whole, 200 ms in an ssh
+     * session, which delivers it in pieces now and then; ESCDELAY, if the
+     * user set it, wins. */
+    if (getenv("ESCDELAY") == NULL)
+        set_escdelay((getenv("SSH_TTY") != NULL) ? 200 : 25);
     timeout(FRAME_MS);
 
     if (has_colors()) {
@@ -2648,14 +3309,15 @@ static void *tui_thread(void *unused)
         init_pair(CP_path, COLOR_CYAN, COLOR_BLUE);
         init_pair(CP_bar, COLOR_BLACK, COLOR_WHITE);
         init_pair(CP_hotkey, COLOR_RED, COLOR_WHITE);
-        init_pair(CP_warn, COLOR_WHITE, COLOR_RED);
+        init_pair(CP_warn, COLOR_WHITE,
+                  (COLORS >= 16) ? 8 + COLOR_MAGENTA : COLOR_MAGENTA);
         init_pair(CP_good, COLOR_GREEN, COLOR_BLUE);
         init_pair(CP_ctl_off, (COLORS >= 16) ? 9 : COLOR_RED, COLOR_BLUE);
         init_pair(CP_ctl_latch, COLOR_RED, COLOR_WHITE);
         /* Bright yellow is color 11 where the terminal has 16 colors. */
         init_pair(CP_ctl_on, COLOR_RED, (COLORS >= 16) ? 11 : COLOR_YELLOW);
         init_pair(CP_crop, COLOR_GREEN, COLOR_BLUE);
-        init_pair(CP_note, COLOR_RED, COLOR_BLACK);
+        init_pair(CP_note, COLOR_MAGENTA, COLOR_BLACK);
         init_pair(CP_focus, COLOR_WHITE, COLOR_BLUE);
         init_pair(CP_dialog, COLOR_BLACK, COLOR_WHITE);
         init_pair(CP_dlg_frame, COLOR_WHITE, COLOR_WHITE);
@@ -2663,6 +3325,7 @@ static void *tui_thread(void *unused)
         init_pair(CP_button_on, COLOR_WHITE, COLOR_GREEN);
         init_pair(CP_shadow, COLOR_BLACK, COLOR_BLACK);
         init_pair(CP_dark, (COLORS >= 16) ? 8 : COLOR_BLACK, COLOR_BLUE);
+        init_pair(CP_ghost, (COLORS >= 16) ? 8 : COLOR_BLACK, COLOR_BLACK);
         init_pair(CP_off, COLOR_WHITE, (COLORS >= 16) ? 8 : COLOR_BLACK);
         init_pair(CP_scroll, COLOR_BLUE, COLOR_CYAN);
         init_pair(CP_raw, COLOR_MAGENTA, COLOR_BLUE);
@@ -2674,6 +3337,7 @@ static void *tui_thread(void *unused)
         init_pair(CP_cluster_off, (COLORS >= 16) ? 8 : COLOR_BLACK,
                   COLOR_CYAN);
         init_pair(CP_dlg_off, (COLORS >= 16) ? 8 : COLOR_BLACK, COLOR_WHITE);
+        init_pair(CP_dlg_help, COLOR_BLUE, COLOR_WHITE);
         init_pair(CP_input, COLOR_WHITE, COLOR_BLUE);
         init_pair(CP_button_def, COLOR_CYAN, COLOR_GREEN);
         init_pair(CP_signal, COLOR_BLACK, COLOR_YELLOW);
