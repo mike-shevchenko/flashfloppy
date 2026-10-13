@@ -28,7 +28,8 @@ static const char * const action_name[KEY_ACT_nr] = {
     [KEY_ACT_insert] = "insert",
     [KEY_ACT_reset] = "reset",
     [KEY_ACT_quit] = "quit",
-    [KEY_ACT_latch] = "latch"
+    [KEY_ACT_latch] = "latch",
+    [KEY_ACT_relaunch] = "relaunch"
 };
 
 static unsigned int log_printed;
@@ -63,21 +64,76 @@ static void park(void)
         pause();
 }
 
+/* Code point @cp into @p in UTF-8, returning the bytes. */
+static unsigned int utf8(char *p, unsigned int cp)
+{
+    if (cp < 0x80) {
+        p[0] = cp;
+        return 1;
+    }
+    if (cp < 0x800) {
+        p[0] = 0xc0 | (cp >> 6);
+        p[1] = 0x80 | (cp & 0x3f);
+        return 2;
+    }
+    p[0] = 0xe0 | (cp >> 12);
+    p[1] = 0x80 | ((cp >> 6) & 0x3f);
+    p[2] = 0x80 | (cp & 0x3f);
+    return 3;
+}
+
+/* The display as text: an OLED as its pixels, the ASCII rendering's character
+ * for lit; the LED display as its digits, then as pixels in that shape; the
+ * LCD as its rows between bars, each code as the Unicode character that its
+ * ROM's glyph stands for, in UTF-8, a white square for one with none. */
 static void dump_display(void)
 {
     static uint8_t px[OLED_W * OLED_MAX_H];
+    const uint8_t *src = px, *all;
     struct oled_view v;
-    unsigned int x, y;
-    char row[OLED_W + 1];
+    struct led_view lv;
+    struct lcd_view cv;
+    unsigned int x, y, w, h;
+    char row[512], text[16];
 
-    oled_get_view(&v, px);
-    printf("display: 128x%u %s contrast=%u%s updates=%u\n", v.height,
-           v.on ? "on" : "off", v.contrast, v.inverse ? " inverse" : "",
-           v.nr_updates);
-    for (y = 0; y < v.height; y++) {
-        for (x = 0; x < OLED_W; x++)
-            row[x] = px[y*OLED_W + x] ? '#' : '.';
-        row[OLED_W] = '\0';
+    if (DISP_IS_LCD(config.display)) {
+        hd44780_get_view(&cv);
+        printf("display: LCD %ux%u %s backlight %s rom=%s updates=%u\n",
+               cv.cols, cv.rows, cv.on ? "on" : "off",
+               cv.backlight ? "on" : "off", lcd_rom_name[cv.rom],
+               cv.nr_updates);
+        for (y = 0; y < cv.rows; y++) {
+            unsigned int n = 0;
+            for (x = 0; x < cv.cols; x++) {
+                unsigned int cp = hd44780_unicode(cv.rom, cv.text[y][x]);
+                n += utf8(row + n, !cv.on ? ' ' : cp ? cp : LCD_MISSING);
+            }
+            row[n] = '\0';
+            printf("|%s|\n", row);
+        }
+        return;
+    }
+    if (DISP_IS_LED(config.display)) {
+        led_get_view(&lv);
+        led_text(&lv, text, sizeof(text));
+        printf("display: LED %u digits %s \"%s\" segments %02x %02x %02x "
+               "updates=%u\n", lv.nr_digits, lv.on ? "on" : "off", text,
+               lv.seg[0], lv.seg[1], lv.seg[2], lv.nr_updates);
+        led_pixels(&lv, LED_FONT_ascii, &src, &all, &w, &h);
+    } else {
+        oled_get_view(&v, px);
+        printf("display: 128x%u %s contrast=%u%s updates=%u\n", v.height,
+               v.on ? "on" : "off", v.contrast,
+               v.inverse ? " inverse" : "", v.nr_updates);
+        w = OLED_W;
+        h = v.height;
+    }
+    if (w > sizeof(row) - 1)
+        w = sizeof(row) - 1;
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++)
+            row[x] = src[y*w + x] ? ascii_pixel : '.';
+        row[w] = '\0';
         puts(row);
     }
 }
@@ -127,8 +183,16 @@ static void print_status(void)
     struct usb_info usb;
     char flash[2048];
 
-    oled_get_view(&v, px);
-    printf("display: %s 128x%u, driven 128x%u\n", v.chip, v.height, v.driven);
+    if (DISP_IS_LCD(config.display)) {
+        struct lcd_view cv;
+        hd44780_get_view(&cv);
+        printf("display: HD44780 %ux%u, ROM %s\n", cv.cols, cv.rows,
+               lcd_rom_name[cv.rom]);
+    } else {
+        oled_get_view(&v, px);
+        printf("display: %s 128x%u, driven 128x%u\n", v.chip, v.height,
+               v.driven);
+    }
     flash_summary(flash, sizeof(flash));
     printf("flash: %s\n", flash);
 
@@ -205,7 +269,8 @@ static void *script_thread(void *arg_sleep_ms)
             }
             fflush(NULL);
             ui_action(i);
-            if ((i == KEY_ACT_reset) || (i == KEY_ACT_quit))
+            if ((i == KEY_ACT_reset) || (i == KEY_ACT_relaunch)
+                || (i == KEY_ACT_quit))
                 park();
         } else if (!strcmp(line, "dump")) {
             dump_display();

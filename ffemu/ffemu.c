@@ -2,7 +2,7 @@
  * ffemu.c
  *
  * Runs the FlashFloppy user interface in a terminal, with no Gotek hardware:
- * the firmware's own code draws on an emulated OLED display and reads an
+ * the firmware's own code draws on an emulated display and reads an
  * emulated USB drive, while the keyboard stands in for the buttons and
  * the rotary encoder, and for the signals of a host computer that select the
  * drive and move its head. No data flows on the floppy interface.
@@ -63,6 +63,18 @@ static bool latched;
 bool ui_latched(void)
 {
     return latched;
+}
+
+unsigned int ui_latch_save(void)
+{
+    return latched ? 8u | (emu_in_buttons & 7u) : 0;
+}
+
+void ui_latch_restore(unsigned int latch)
+{
+    latched = (latch & 8u) != 0;
+    if (latched)
+        __sync_fetch_and_or(&emu_in_buttons, latch & 7u);
 }
 
 static void press(unsigned int nr)
@@ -149,6 +161,9 @@ void ui_action(int act)
         break;
     case KEY_ACT_reset:
         cpu_request_restart();
+        break;
+    case KEY_ACT_relaunch:
+        cpu_request_relaunch();
         break;
     case KEY_ACT_quit:
         cpu_request_quit();
@@ -283,6 +298,35 @@ void ui_fdd_restore(unsigned int in, unsigned int pos)
     phase_pos = pos % 8;
 }
 
+/* The I2C bus, whose one slave is the display fitted, an OLED or an LCD:
+ * the device that answered the last START takes the transaction. */
+static bool i2c_lcd;
+
+int emu_i2c_dev_start(unsigned int addr, int rd)
+{
+    i2c_lcd = hd44780_i2c_start(addr, rd);
+    return i2c_lcd || oled_i2c_start(addr, rd);
+}
+
+void emu_i2c_dev_write(uint8_t b)
+{
+    if (i2c_lcd)
+        hd44780_i2c_write(b);
+    else
+        oled_i2c_write(b);
+}
+
+uint8_t emu_i2c_dev_read(void)
+{
+    return i2c_lcd ? hd44780_i2c_read() : oled_i2c_read();
+}
+
+void emu_i2c_dev_stop(void)
+{
+    hd44780_i2c_stop();
+    oled_i2c_stop();
+}
+
 static void usage(FILE *f)
 {
     char fdd[128] = "";
@@ -339,7 +383,7 @@ int main(int argc, char **argv)
 {
     const char *state, *store = getenv("FFEMU_USB");
     int style, usb = 1, fd;
-    unsigned int sleep_ms = 0, layout, fdd, phase_pos;
+    unsigned int sleep_ms = 0, layout, fdd, phase_pos, latch;
     struct stat st;
 
     /* The display is drawn with Unicode block and Braille characters. */
@@ -412,18 +456,25 @@ int main(int argc, char **argv)
 
     state = cpu_restart_state();
     if ((state != NULL)
-        && (sscanf(state, "%d,%d,%u,%x,%u", &style, &usb, &sleep_ms, &fdd,
-                   &phase_pos) == 5)
+        && (sscanf(state, "%d,%d,%u,%x,%u,%x", &style, &usb, &sleep_ms,
+                   &fdd, &phase_pos, &latch) == 6)
         && (style >= 1) && (style <= STYLE_nr)) {
         config.style = style;
         ui_fdd_restore(fdd, phase_pos);
+        ui_latch_restore(latch);
     }
 
     if ((store != NULL) && (sscanf(store, "%d,%x", &fd, &layout) == 2))
         usb_set_store(fd, layout);
     unsetenv("FFEMU_USB");
 
-    oled_init(config.display);
+    if (DISP_IS_LED(config.display))
+        led_init(config.display);
+    else if (DISP_IS_LCD(config.display))
+        hd44780_init(config.display);
+    else
+        oled_init(config.display);
+    hd44780_set_rom(config.lcd_rom);
     if (usb)
         insert(state != NULL);
 
