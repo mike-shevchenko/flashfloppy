@@ -45,7 +45,14 @@ apple2-bootloader-%: FORCE
 
 all-%: FORCE prod-% debug-% logfile-% ;
 
-all: FORCE all-stm32f105 all-at32f435 apple2-bootloader-stm32f105;
+# ffemu, the user interface on a PC, in its two programs: it compiles much
+# of the firmware, so it is built with it.
+ffemu-%: FORCE
+	$(MAKE) -C $(ROOT)/ffemu O=$(O) TARGET=$*
+
+ffemu: FORCE ffemu-shugart ffemu-apple2 ;
+
+all: FORCE all-stm32f105 all-at32f435 apple2-bootloader-stm32f105 ffemu;
 
 clean: FORCE
 	rm -rf $(OUT)
