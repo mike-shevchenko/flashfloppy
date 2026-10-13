@@ -164,9 +164,10 @@ void hd44780_size(unsigned int nr_cols, unsigned int nr_rows,
                   unsigned int *w, unsigned int *h);
 /* The characters of @v as pixels, @w by @h bytes, 1 for a dark dot, in a
  * buffer of this module's that the next call reuses; a character without a
- * glyph, a user-defined one included, as a checkerboard. */
+ * glyph, a user-defined one included, as a checkerboard; and @dots, 1 for
+ * every dot of the character cells, lit or not. */
 void hd44780_pixels(const struct lcd_view *v, const uint8_t **px,
-                    unsigned int *w, unsigned int *h);
+                    const uint8_t **dots, unsigned int *w, unsigned int *h);
 
 /*
  * led_7seg.c
@@ -264,12 +265,15 @@ bool usb_save(const char *path, char *err, size_t size);
  * defaults. Says what it did, or why it could not, in @msg. */
 bool ff_cfg_write(const void *cfg, bool all, char *msg, size_t size);
 /* The value of option @name in the drive's FF.CFG, as the firmware sees the
- * file now, into @value; false if there is no drive, file or such line. */
+ * file now, from the last line for it, into @value; false if there is no
+ * drive, file or such line. */
 bool ff_cfg_file_option(const char *name, char *value, size_t size);
-/* Sets option @name to @value in the drive's FF.CFG, where it has a line
- * for it, on a drive made from a directory or a disk the system has
- * mounted: the line rewritten in place, the old file kept as .BAK. Says
- * what it did, or why it could not, in @msg. */
+/* Sets options @names to @values, @nr of them, in the drive's FF.CFG, where
+ * it has lines for them, on a drive made from a directory or a disk the
+ * system has mounted: each such line rewritten in place, in one pass, the
+ * old file kept as .BAK. Says what it did, or why it could not, in @msg. */
+bool ff_cfg_set_options(const char *const *names, const char *const *values,
+                        unsigned int nr, char *msg, size_t size);
 bool ff_cfg_set_option(const char *name, const char *value, char *msg,
                        size_t size);
 
@@ -309,6 +313,7 @@ struct config {
     int style;              /* STYLE_* */
     int display;            /* DISP_*: the display fitted */
     int lcd_rom;            /* LCD_ROM_*: the LCD's character ROM */
+    bool oled_synth;        /* the OLED's 8x16 font made from the 6x13 one */
     int display_color;      /* a curses color, plus 8 if bright */
     unsigned int hold_ms;   /* how long a key press holds a button down */
     char path[512];         /* where the settings file is, or would be */
@@ -390,6 +395,12 @@ void ui_fdd_restore(unsigned int in, unsigned int pos);
  * it with HOST_LOG_PREFIX. */
 void host_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #define HOST_LOG_PREFIX "ffemu: "
+/* Before and after a user's string in a message, such as a path: whatever
+ * shows the message may shorten that part to fit, and drops the marks. */
+#define MSG_USER '\x1f'
+/* The line where the firmware reset itself, which is no power cycle: the
+ * console goes on after it. */
+#define LOG_FW_RESET "======= Firmware reset ======="
 
 /*
  * tui.c

@@ -46,12 +46,16 @@ static uint64_t reinsert_at;
 
 void host_log(const char *fmt, ...)
 {
-    char msg[512];
+    char msg[512], *p, *q;
     va_list ap;
 
     va_start(ap, fmt);
     vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
+    for (p = q = msg; *p; p++)
+        if (*p != MSG_USER)
+            *q++ = *p;
+    *q = '\0';
 
     emu_log(HOST_LOG_PREFIX);
     emu_log(msg);
@@ -475,6 +479,7 @@ int main(int argc, char **argv)
     else
         oled_init(config.display);
     hd44780_set_rom(config.lcd_rom);
+    emu_oled_synth_8x16 = config.oled_synth;
     if (usb)
         insert(state != NULL);
 
