@@ -104,7 +104,7 @@ enum {
     CP_lcd_dark,  /* black on dark gray, or blue on black: the LCD unlit */
     CP_lcd_stub,  /* bright magenta on the LCD: a character it lacks */
     CP_lcd_dot,   /* the LCD's unlit dots, faint, on its panel */
-    CP_lcd_inkdot, /* the LCD's unlit dots on its ink */
+    CP_lcd_inkdot, /* the LCD's ink on its unlit dots */
     CP_nr
 };
 
@@ -158,7 +158,7 @@ static int dialog_display;
 static int dialog_lcd_rom, dialog_focus;
 static bool dialog_oled_synth;
 enum { DF_display, DF_rom, DF_synth, DF_ok, DF_cancel, DF_nr };
-/* The Display type dialog's labels, by the control each names, '~' around
+/* The Display type dialog's labels, by the control each names, `~` around
  * the letter that moves the focus to it. */
 static const char * const df_label[DF_nr] = {
     [DF_display] = "~D~isplay",
@@ -692,14 +692,11 @@ static void draw_led(int y0, int x0, int fw, int style, bool too_small,
 }
 
 /* The lit LCD in half blocks with 16 colors, @px over @dots: the dots that
- * are not lit show faintly, as on a real panel. A terminal may show a color
- * as ink and as paper in different shades, so the unlit dots are always ink
- * and the panel always paper; a lit dot is paper beside an unlit one. */
+ * are not lit show faintly, as on a real panel. */
 static void draw_lcd_half(int y0, int x0, const uint8_t *px,
                           const uint8_t *dots, unsigned int w, unsigned int h)
 {
-    /* In order of their claim to be the ink of a cell. */
-    enum { PANEL, INK, DOT };
+    enum { PANEL, DOT, INK };
     unsigned int x, y;
 
     for (y = 0; y < h; y += 2) {
@@ -710,9 +707,9 @@ static void draw_lcd_half(int y0, int x0, const uint8_t *px,
                 : px[j] ? INK : dots[j] ? DOT : PANEL;
             int fg = (top > bottom) ? top : bottom;
             int bg = (top > bottom) ? bottom : top;
-            attr_t attr = (fg != DOT) ? COLOR_PAIR(CP_lcd)
-                : (bg == INK) ? COLOR_PAIR(CP_lcd_inkdot)
-                : COLOR_PAIR(CP_lcd_dot);
+            attr_t attr = (fg == DOT) ? COLOR_PAIR(CP_lcd_dot)
+                : (bg == DOT) ? COLOR_PAIR(CP_lcd_inkdot)
+                : COLOR_PAIR(CP_lcd);
             wchar_t wc = (top == bottom) ? ((top == PANEL) ? L' ' : 0x2588)
                 : (top == fg) ? 0x2580 : 0x2584;
             put_char(y0 + y / 2, x0 + x, attr, wc);
@@ -1382,16 +1379,12 @@ static void draw_keys(int y, int x, int w)
     fdd_panel(y + 5, x + 1, w - 1);
     y += 8;
 
-    /* The latch key lights up while its mode lasts. The + between the keys
-     * of a combination is not a key itself. */
+    /* The latch key lights up while its mode lasts. */
     for (i = 0; i < ARRAY_SIZE(device_keys); i++) {
-        int act = device_keys[i].act, n = strlen(key_label[act]) + 1, j;
-        const char *k = key_label[act];
+        int act = device_keys[i].act, n = strlen(key_label[act]) + 1;
         bool lit = ((act == KEY_ACT_latch) && ui_latched())
             || (emu_time_ns() < key_lit_until[act]);
-        for (j = 0; k[j] != '\0'; j++)
-            put(y, x + j, w - j, (k[j] == '+') ? 0 : key_attr(lit), "%c",
-                k[j]);
+        put(y, x, w, key_attr(lit), "%s", key_label[act]);
         put(y++, x + n, w - n, 0, "%s", device_keys[i].what);
     }
 }
@@ -1647,8 +1640,7 @@ static const char *ff_cfg_text(const char *path, unsigned int gen)
 
 /* The FF.CFG that the firmware reads, beside the display: named by its path
  * on the drive, with its path on the host in the corner. While the drive is
- * out, in light gray: as it is on the host now, or as last read from an
- * image. */
+ * out, dimmed: as it is on the host now, or as last read from an image. */
 static void draw_ff_cfg(int y, int x, int w, int h)
 {
     struct usb_info usb;
@@ -1695,8 +1687,8 @@ static void draw_ff_cfg(int y, int x, int w, int h)
     for (row = 0, p = text; row < ff_cfg_top; row++)
         p += strcspn(p, "\n") + 1;
     for (row = 0; (row < rows) && (*p != '\0'); row++) {
-        put_line(y + 1 + row, x + 1, w - 2, !usb.inserted,
-                 usb.inserted ? CP_value : CP_text, p, strcspn(p, "\n"));
+        put_line(y + 1 + row, x + 1, w - 2, !usb.inserted, CP_value, p,
+                 strcspn(p, "\n"));
         p += strcspn(p, "\n");
         if (*p == '\n')
             p++;
@@ -2439,7 +2431,7 @@ static void set_lcd_pairs(void)
     /* The unlit dots: the panel's color with the other brightness. */
     if (COLORS >= 16) {
         init_pair(CP_lcd_dot, panel ^ 8, panel);
-        init_pair(CP_lcd_inkdot, panel ^ 8, ink);
+        init_pair(CP_lcd_inkdot, ink, panel ^ 8);
     }
 }
 
@@ -2507,7 +2499,7 @@ static int key_of_char(wint_t ch)
     } map[] = {
         { 0x439, 'q' }, { 0x419, 'Q' }, { 0x446, 'w' }, { 0x426, 'W' },
         { 0x443, 'e' }, { 0x423, 'E' },
-        { 0x445, '[' }, { 0x425, '[' }, { 0x44a, ']' }, { 0x42a, ']' },
+        { 0x445, '[' }, { 0x44a, ']' },
         { 0x2116, '#' } /* the numero sign, Shift+3 */
     };
     unsigned int i;
@@ -2622,7 +2614,7 @@ static struct fview {
       { "no", "yes", "auto" }, false, true },
     { FV_input, 0, "~d~isplay-order", "display-order",
       "Rows top down: 0=name, 1=status, 2=info, 3=folder, 7=blank, "
-      "d=double-height", { NULL }, false, false },
+      "d=double-height; e.g. \"3,0d,1\"", { NULL }, false, false },
     { FV_input, 0, "display-~o~ff-secs", "display-off-secs",
       "Seconds without activity before the display goes dark, 0-255: 0 is "
       "always off, 255 never",
@@ -3844,47 +3836,15 @@ static const struct {
       "blanks or garbles" },
 };
 
-/* The rows that display-order = default gives, as the firmware chooses them
- * for the display that the dialog's display-type names, or for auto for the
- * one fitted; NULL for a 7-segment display, which shows no rows. */
-static const char *fd_default_display_order(void)
-{
-    const struct fview *r = fd_find(FV_radio, "display-type");
-    const char *t = r ? fd_radio_value(r) : "auto";
-    bool oled, tall;
-
-    if (!strcmp(t, "auto")) {
-        if (DISP_IS_LED(fitted_display))
-            return NULL;
-        oled = DISP_IS_OLED(fitted_display);
-        tall = oled ? (DISP_HEIGHT(fitted_display) == 64)
-            : (DISP_LCD_ROWS(fitted_display) == 4);
-    } else {
-        oled = !strncmp(t, "oled-", 5);
-        tall = !strcmp(t, "oled-128x64") || !strcmp(t, "lcd-20x04");
-    }
-    return !tall ? "0,1" : oled ? "3,0d,1" : "3,0,1,2";
-}
-
 /* The help of the control in focus: of the item under the cursor, for a
- * cluster whose item has one, else the control's own; for display-order
- * with its default added. */
+ * cluster whose item has one, else the control's own. */
 static const char *fd_help(void)
 {
     const struct fview *v = &fviews[fd_focus];
-    static char order[128];
-    const char *dflt;
     char item[32];
     unsigned int i;
     int k;
 
-    if ((v->type == FV_input) && v->opt && !strcmp(v->opt, "display-order")) {
-        dflt = fd_default_display_order();
-        if (dflt == NULL)
-            return v->help;
-        snprintf(order, sizeof(order), "%s; default: %s", v->help, dflt);
-        return order;
-    }
     if ((v->type != FV_radio) && (v->type != FV_check))
         return v->help;
     k = (v->type == FV_radio) ? v->cur : fd_item_of_row(v, v->cur);
