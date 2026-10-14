@@ -175,6 +175,16 @@ void flash_ff_cfg_read(void)
     }
 }
 
+/* The firmware's Flash configuration area: blank, as erased flash, since
+ * the emulated flash keeps its settings in the settings file. */
+const void *flash_ff_cfg_area(void)
+{
+    static uint8_t area[FLASH_PAGE_SIZE];
+
+    memset(area, 0xff, sizeof(area));
+    return area;
+}
+
 /* The configuration in flash, or FALSE if it holds none. */
 static bool_t flash_cfg(struct ff_cfg *f)
 {

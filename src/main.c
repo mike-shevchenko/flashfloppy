@@ -26,6 +26,7 @@ struct native_dirent {
     uint32_t dir_sect;
     uint16_t dir_off;
     uint8_t attr;
+    uint8_t base_len; /* length of name up to the dot of its extension */
     char name[0];
 };
 
@@ -49,6 +50,7 @@ static struct {
     uint8_t hxc_mode:1;
     uint8_t ejected:1;
     uint8_t ima_ej_flag:1; /* "\\EJ" flag in IMAGE_A.CFG? */
+    uint8_t slot_show_ext:1; /* image's extension shown with its name */
     /* FF.CFG values which override HXCSDFE.CFG. */
     uint8_t ffcfg_has_step_volume:1;
     uint8_t ffcfg_has_display_off_secs:1;
@@ -141,6 +143,16 @@ static bool_t slot_type(const char *str)
     return !strcmp(cfg.slot.type, str);
 }
 
+/* The slot name as the display shows it: with the file extension when
+ * show-filename-ext asks for it, see update_slot_show_ext(). */
+static char disp_name[sizeof(cfg.slot.name) + sizeof(cfg.slot.type) + 1];
+static void update_disp_name(void)
+{
+    snprintf(disp_name, sizeof(disp_name), "%s%s%s", cfg.slot.name,
+             cfg.slot_show_ext ? "." : "",
+             cfg.slot_show_ext ? cfg.slot.type : "");
+}
+
 #define wp_column ((lcd_columns > 16) ? 8 : 7)
 
 /* Scroll long filename. */
@@ -151,10 +163,11 @@ static struct {
 static void lcd_scroll_init(uint16_t pause, uint16_t rate)
 {
     int diff = lcd_scroll.off - lcd_scroll.end;
+    update_disp_name();
     lcd_scroll.pause = pause;
     lcd_scroll.rate = rate;
     lcd_scroll.end = max_t(
-        int, strnlen(cfg.slot.name, sizeof(cfg.slot.name)) - lcd_columns, 0);
+        int, strnlen(disp_name, sizeof(disp_name)) - lcd_columns, 0);
     if (lcd_scroll.end && !lcd_scroll.pause)
         lcd_scroll.end += lcd_columns;
     if (lcd_scroll.off > lcd_scroll.end)
@@ -179,7 +192,7 @@ static void lcd_scroll_name(void)
     if (lcd_scroll.pause != 0) {
         if (++lcd_scroll.off > lcd_scroll.end)
             lcd_scroll.off = 0;
-        snprintf(msg, sizeof(msg), "%s", cfg.slot.name + lcd_scroll.off);
+        snprintf(msg, sizeof(msg), "%s", disp_name + lcd_scroll.off);
         if ((lcd_scroll.off == 0)
             || (lcd_scroll.off == lcd_scroll.end))
             lcd_scroll.ticks = time_ms(lcd_scroll.pause);
@@ -188,12 +201,12 @@ static void lcd_scroll_name(void)
         lcd_scroll.off++;
         if (lcd_scroll.off <= lcd_scroll.end) {
             snprintf(msg, sizeof(msg), "%s%*s%s",
-                     cfg.slot.name + lcd_scroll.off,
-                     scroll_gap, "", cfg.slot.name);
+                     disp_name + lcd_scroll.off,
+                     scroll_gap, "", disp_name);
         } else {
             snprintf(msg, sizeof(msg), "%*s%s",
                      scroll_gap - (lcd_scroll.off - lcd_scroll.end), "",
-                     cfg.slot.name);
+                     disp_name);
             if ((lcd_scroll.off - lcd_scroll.end) == scroll_gap)
                 lcd_scroll.off = 0;
         }
@@ -208,6 +221,7 @@ static void display_write_slot(bool_t nav_mode)
     char msg[lcd_columns+1], typename[4] = "";
     unsigned int i;
 
+    update_disp_name();
     if (display_type != DT_LCD_OLED) {
         if (display_type == DT_LED_7SEG)
             led_7seg_write_decimal(cfg.slot_nr);
@@ -217,7 +231,7 @@ static void display_write_slot(bool_t nav_mode)
     if (nav_mode && !cfg_scroll_reset) {
         lcd_scroll_init(0, ff_cfg.nav_scroll_rate);
         if (lcd_scroll.end == 0) {
-            snprintf(msg, sizeof(msg), "%s", cfg.slot.name);
+            snprintf(msg, sizeof(msg), "%s", disp_name);
             lcd_write(0, 0, -1, msg);
         } else {
             lcd_scroll.off--;
@@ -225,7 +239,7 @@ static void display_write_slot(bool_t nav_mode)
             lcd_scroll_name();
         }
     } else {
-        snprintf(msg, sizeof(msg), "%s", cfg.slot.name);
+        snprintf(msg, sizeof(msg), "%s", disp_name);
         lcd_write(0, 0, -1, msg);
     }
 
@@ -762,6 +776,22 @@ int strcmp_lower(const char *s1, const char *s2)
     return 0;
 }
 
+/* Compares the names of two entries up to the dots of their extensions,
+ * letter case aside. */
+static int native_base_cmp(const struct native_dirent *da,
+                           const struct native_dirent *db)
+{
+    unsigned int i;
+    int diff;
+
+    for (i = 0; (i < da->base_len) && (i < db->base_len); i++)
+        if ((diff = __tolower(da->name[i]) - __tolower(db->name[i])) != 0)
+            return diff;
+    return da->base_len - db->base_len;
+}
+
+/* Sorts by base name, then by extension: "GAME.DSK" before "GAME 2.DSK",
+ * which a comparison of whole names would reverse. */
 static int native_dir_cmp(const void *a, const void *b)
 {
     const struct native_dirent *da = a;
@@ -774,7 +804,8 @@ static int native_dir_cmp(const void *a, const void *b)
             return (da->attr & AM_DIR) ? 1 : -1;
         }
     }
-    return strcmp_lower(da->name, db->name);
+    return native_base_cmp(da, db)
+        ?: strcmp_lower(da->name + da->base_len, db->name + db->base_len);
 }
 
 /* Returns -1 if not read & sorted. */
@@ -784,6 +815,7 @@ static int native_read_and_sort_dir(void)
     struct native_dirent *ent = arena_alloc(0);
     char *start = arena_alloc(0);
     char *end = start + arena_avail();
+    char *dot;
     int nr;
 
     if (ff_cfg.folder_sort == SORT_never)
@@ -803,6 +835,9 @@ static int native_read_and_sort_dir(void)
         ent->dir_off = fs->fp.dir_ptr - fatfs.win;
         ent->attr = fs->fp.fattrib;
         strcpy(ent->name, fs->fp.fname);
+        /* A folder's name has no extension. */
+        dot = (ent->attr & AM_DIR) ? NULL : strrchr(ent->name, '.');
+        ent->base_len = dot ? dot - ent->name : strlen(ent->name);
         ent = (struct native_dirent *)(
             ((uintptr_t)ent + sizeof(*ent) + strlen(ent->name) + 1 + 3) & ~3);
     }
@@ -1251,6 +1286,13 @@ static void read_ff_cfg(void)
                 : DISPON_yes;
             break;
 
+        case FFCFG_show_filename_ext:
+            ff_cfg.show_filename_ext =
+                !strcmp(opts.arg, "yes") ? SHOWEXT_yes
+                : !strcmp(opts.arg, "auto") ? SHOWEXT_auto
+                : SHOWEXT_no;
+            break;
+
         case FFCFG_display_scroll_rate:
             ff_cfg.display_scroll_rate = strtol(opts.arg, NULL, 10);
             if (ff_cfg.display_scroll_rate < 100)
@@ -1369,6 +1411,22 @@ static void process_ff_cfg_opts(const struct ff_cfg *old)
         system_reset(); /* hit it with a hammer */
 }
 
+/* Set from the main menu: the Flash configuration area is written to
+ * FLASH.DMP when a drive is next mounted. */
+static bool_t is_dump_flash_cfg_needed;
+
+/* Writes FLASH.DMP into the folder of FF.CFG, as Flash is before FF.CFG
+ * can change it, if the main menu asked for it. */
+static void dump_flash_cfg(void)
+{
+    if (!is_dump_flash_cfg_needed)
+        return;
+    is_dump_flash_cfg_needed = FALSE;
+    F_open(&fs->file, "FLASH.DMP", FA_CREATE_ALWAYS|FA_WRITE);
+    F_write(&fs->file, flash_ff_cfg_area(), FLASH_PAGE_SIZE, NULL);
+    F_close(&fs->file);
+}
+
 static void cfg_init(void)
 {
     struct ff_cfg old_ff_cfg = ff_cfg;
@@ -1387,6 +1445,8 @@ static void cfg_init(void)
 
     fr = f_chdir("FF");
     cfg.cfg_cdir = fatfs.cdir;
+
+    dump_flash_cfg();
 
     memset(&cfg.imgcfg, 0, sizeof(cfg.imgcfg));
     fr = F_try_open(&fs->file, "IMG.CFG", FA_READ);
@@ -1948,6 +2008,43 @@ indexed_mode:
         cfg.slot.type[i] = tolower(cfg.slot.type[i]);
 }
 
+/* Whether another image of the folder has the slot's name with another
+ * extension, so that the name alone does not tell them apart. Such images
+ * sort next to each other; in an unsorted folder every name counts as such,
+ * which costs no directory pass. */
+static bool_t slot_name_ambiguous(void)
+{
+    const struct native_dirent *ent, *nbr;
+    int first, i;
+
+    if (cfg.hxc_mode)
+        return FALSE;
+    if (!cfg.sorted)
+        return TRUE;
+
+    first = cfg.depth ? 1 : 0;
+    ent = cfg.sorted[cfg.slot_nr - first];
+    for (i = cfg.slot_nr - 1; i <= cfg.slot_nr + 1; i += 2) {
+        if ((i < first) || (i > cfg.max_slot_nr))
+            continue;
+        nbr = cfg.sorted[i - first];
+        if (!(nbr->attr & AM_DIR) && !native_base_cmp(ent, nbr))
+            return TRUE;
+    }
+    return FALSE;
+}
+
+/* Per show-filename-ext: the extension is shown always, or only when the name
+ * is ambiguous in the folder, or never. */
+static void update_slot_show_ext(void)
+{
+    cfg.slot_show_ext = !(cfg.slot.attributes & AM_DIR)
+        && (cfg.slot.type[0] != '\0')
+        && ((ff_cfg.show_filename_ext == SHOWEXT_yes)
+            || ((ff_cfg.show_filename_ext == SHOWEXT_auto)
+                && slot_name_ambiguous()));
+}
+
 /* Always updates cfg.slot info for current slot_nr. Additionally:
  * Native (Direct Navigation):
  *  READ_SLOT:  Update slot_map/max_slot_nr for current directory.
@@ -1967,6 +2064,7 @@ static void cfg_update(uint8_t slot_mode)
         hxc_cfg_update(slot_mode);
     else
         native_update(slot_mode);
+    update_slot_show_ext();
     if (!(cfg.slot.attributes & AM_DIR)
         && (ff_cfg.write_protect || volume_readonly()))
         cfg.slot.attributes |= AM_RDO;
@@ -2955,6 +3053,7 @@ static void main_menu(void)
         "Factory Reset",
         "Update Firmware",
         "Configure FF OSD",
+        "Save FLASH.DMP",
         "Exit",
     };
 
@@ -3011,7 +3110,13 @@ static void main_menu(void)
             case 3: /* Configure FF OSD */
                 ff_osd_configure();
                 break;
-            case 4: /* Exit */
+            case 4: /* Save FLASH.DMP */
+                /* Written once a drive is mounted, which none is now. */
+                is_dump_flash_cfg_needed = TRUE;
+                lcd_write(0, 1, -1, "Insert USB drive");
+                delay_ms(1500);
+                goto out;
+            case 5: /* Exit */
                 goto out;
             }
         }
