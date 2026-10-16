@@ -26,7 +26,7 @@ breaks ffemu fails the regular build.
 The program is `out/ffemu/ffemu` under `<path>`, which defaults to the top of
 the source tree. It runs the shugart firmware, which serves a Shugart host.
 `TARGET=apple2` builds `out/ffemu-apple2/ffemu-apple2` instead, which runs the
-apple2 firmware: it serves an Apple2 host and lists only HFE images.
+apple2 firmware: it serves an Apple2 host and lists only the Apple2 images.
 `TARGET=multi` builds `out/ffemu-multi/ffemu-multi`, which runs the multi
 firmware: it serves a Shugart host and an Apple2 host alike, detecting which
 one it is connected to as it boots, and in its Apple2 mode lists only the

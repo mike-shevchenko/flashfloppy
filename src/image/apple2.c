@@ -1,5 +1,5 @@
 /*
- * nib.c
+ * apple2.c
  *
  * Apple2 nibble and sector images:
  *
@@ -35,7 +35,7 @@
  * See the file COPYING for more details, or visit <http://unlicense.org>.
  */
 
-#define LOG_PREFIX "DSK"
+#define LOG_PREFIX "Apple2"
 
 #define TRK_LEN 6656 /* bytes streamed per track, in every format */
 #define MAX_TRKS 40
@@ -68,17 +68,17 @@ static void nib_seek_track(struct image *im, uint16_t track);
 
 static bool_t nib_open(struct image *im)
 {
-    unsigned int trk_len = im->nib.dsk ? DSK_TRK_LEN
-        : im->nib.nic ? NIC_TRK_LEN : TRK_LEN;
+    unsigned int trk_len = im->a2.dsk ? DSK_TRK_LEN
+        : im->a2.nic ? NIC_TRK_LEN : TRK_LEN;
     unsigned int nr_trks = f_size(&im->fp) / trk_len;
 
     /* A sector image of the Agat may end in a 128-byte trailer naming the
      * disk. */
-    if (((f_size(&im->fp) % trk_len) & ~(im->nib.dsk ? 128u : 0u))
+    if (((f_size(&im->fp) % trk_len) & ~(im->a2.dsk ? 128u : 0u))
         || (nr_trks < 35) || (nr_trks > MAX_TRKS))
         return FALSE;
 
-    im->nib.trk_len = trk_len;
+    im->a2.trk_len = trk_len;
     im->nr_cyls = nr_trks;
     im->step = 2; /* the host steps in half tracks */
     im->nr_sides = 1;
@@ -102,7 +102,7 @@ static bool_t nib_open(struct image *im)
 
 static bool_t nic_open(struct image *im)
 {
-    im->nib.nic = TRUE;
+    im->a2.nic = TRUE;
     return nib_open(im);
 }
 
@@ -115,13 +115,14 @@ static const uint8_t dsk_file_sec[2][16] = {
 
 static bool_t dsk_open(struct image *im)
 {
-    unsigned int prodos = (im->slot->type[0] == 'p');
+    unsigned int prodos = (im->slot->type[0] == 'p'); /* .po vs .do */
     uint32_t hdr[2];
 
-    im->nib.nic = im->nib.dsk = TRUE;
+    im->a2.nic = im->a2.dsk = TRUE;
     if (!nib_open(im))
         return FALSE;
 
+    /* .DSK: Auto-probe DOS 3.3 vs ProDOS sector order.  */
     if (im->slot->type[1] == 's') {
         /* The key block of a ProDOS volume directory, block 2: no previous
          * block, the next one 3, storage type F before the name's length. */
@@ -129,17 +130,18 @@ static bool_t dsk_open(struct image *im)
         F_read(&im->fp, hdr, sizeof(hdr), NULL);
         prodos = (le32toh(hdr[0]) == 0x00030000)
             && ((le32toh(hdr[1]) & 0xf0) == 0xf0);
+        if (prodos)
+            printk(".DSK: ProDOS\n");
     }
-    if (prodos)
-        printk("ProDOS order\n");
-    im->nib.file_sec = dsk_file_sec[prodos];
+
+    im->a2.file_sec = dsk_file_sec[prodos];
 
     return TRUE;
 }
 
 static void nib_seek_track(struct image *im, uint16_t track)
 {
-    im->nib.trk_off = (uint32_t)track * im->nib.trk_len;
+    im->a2.trk_off = (uint32_t)track * im->a2.trk_len;
     im->cur_track = track;
 }
 
@@ -149,7 +151,7 @@ static void nib_setup_track(
     struct image_buf *rd = &im->bufs.read_data;
     struct image_buf *bc = &im->bufs.read_bc;
     uint32_t start_ticks;
-    unsigned int blk = im->nib.nic ? NIC_BLK_DATA : 256;
+    unsigned int blk = im->a2.nic ? NIC_BLK_DATA : 256;
 
     /* Half-track steps, one side. */
     track >>= 2;
@@ -175,15 +177,15 @@ static void nib_setup_track(
         /* Read mode: the ring starts at the block holding the position,
          * and reading the first blocks moves trk_pos past them. */
         uint32_t pos = ((im->cur_bc/8) / blk) * blk;
-        im->nib.trk_pos = pos;
+        im->a2.trk_pos = pos;
         image_read_track(im);
         bc->cons = im->cur_bc - pos * 8;
     } else {
         /* Write mode: the nibbles are collected first. */
-        im->nib.write.start = im->cur_bc;
-        im->nib.write.nr = 0;
-        im->nib.write.acc = im->nib.write.nbits = 0;
-        im->nib.write.lost = FALSE;
+        im->a2.write.start = im->cur_bc;
+        im->a2.write.nr = 0;
+        im->a2.write.acc = im->a2.write.nbits = 0;
+        im->a2.write.lost = FALSE;
     }
 }
 
@@ -247,7 +249,7 @@ static unsigned int dsk_value(const uint8_t *d, unsigned int i)
 static void dsk_make_block(struct image *im, uint8_t *b, const uint8_t *trk,
                            unsigned int sec)
 {
-    const uint8_t *d = &trk[im->nib.file_sec[sec] * 256];
+    const uint8_t *d = &trk[im->a2.file_sec[sec] * 256];
     uint32_t addr = DSK_VOLUME | (im->cur_track << 8) | (sec << 16);
     uint8_t *p;
     unsigned int i, v, x;
@@ -284,11 +286,11 @@ static bool_t nib_read_track(struct image *im)
     uint32_t bc_len, bc_space, bc_p, bc_c;
     unsigned int nr, i, blk_data, blk_file;
 
-    if (im->nib.dsk) {
+    if (im->a2.dsk) {
         /* The blocks are made after the track's sectors. */
         blk_data = blk_file = NIC_BLK_DATA;
         buf += DSK_TRK_LEN;
-    } else if (im->nib.nic) {
+    } else if (im->a2.nic) {
         blk_data = NIC_BLK_DATA;
         blk_file = NIC_BLK_LEN;
     } else {
@@ -297,23 +299,23 @@ static bool_t nib_read_track(struct image *im)
 
     if (rd->prod == rd->cons) {
         uint8_t *trk = rd->p;
-        unsigned int sec = im->nib.trk_pos / blk_data;
-        nr = min_t(unsigned int, 8, (TRK_LEN - im->nib.trk_pos) / blk_data);
-        if (im->nib.dsk) {
+        unsigned int sec = im->a2.trk_pos / blk_data;
+        nr = min_t(unsigned int, 8, (TRK_LEN - im->a2.trk_pos) / blk_data);
+        if (im->a2.dsk) {
             /* The whole track, of which the blocks are made. */
-            F_lseek(&im->fp, im->nib.trk_off);
+            F_lseek(&im->fp, im->a2.trk_off);
             F_read(&im->fp, trk, DSK_TRK_LEN, NULL);
             for (i = 0; i < nr; i++, sec++)
                 dsk_make_block(im, &buf[i * NIC_BLK_DATA], trk, sec);
         } else {
-            F_lseek(&im->fp, im->nib.trk_off + sec * blk_file);
+            F_lseek(&im->fp, im->a2.trk_off + sec * blk_file);
             F_read(&im->fp, buf, nr * blk_file, NULL);
         }
         rd->cons = 0;
         rd->prod = nr;
-        im->nib.trk_pos += nr * blk_data;
-        if (im->nib.trk_pos >= TRK_LEN)
-            im->nib.trk_pos = 0;
+        im->a2.trk_pos += nr * blk_data;
+        if (im->a2.trk_pos >= TRK_LEN)
+            im->a2.trk_pos = 0;
     }
 
     /* Fill the raw-bitcell ring buffer. */
@@ -349,10 +351,10 @@ static void nib_put_nibbles(struct image *im, const uint8_t *nib,
         nr = TRK_LEN;
 
     first = min_t(unsigned int, nr, TRK_LEN - pos);
-    F_lseek(&im->fp, im->nib.trk_off + pos);
+    F_lseek(&im->fp, im->a2.trk_off + pos);
     F_write(&im->fp, nib, first, NULL);
     if (first != nr) {
-        F_lseek(&im->fp, im->nib.trk_off);
+        F_lseek(&im->fp, im->a2.trk_off);
         F_write(&im->fp, nib + first, nr - first, NULL);
     }
 }
@@ -393,7 +395,7 @@ static void dsk_put_sector(struct image *im, uint8_t *buf, const uint8_t *nib,
     for (i = 0; i < 256; i++)
         buf[i] |= SWAP2(aux[i % 86] >> (2 * (i / 86)));
 
-    F_lseek(&im->fp, im->nib.trk_off + im->nib.file_sec[sec] * 256);
+    F_lseek(&im->fp, im->a2.trk_off + im->a2.file_sec[sec] * 256);
     F_write(&im->fp, buf, 256, NULL);
 }
 
@@ -426,16 +428,16 @@ static void nic_put_nibbles(struct image *im, const uint8_t *nib,
             i++;
             continue;
         }
-        if (im->nib.dsk) {
+        if (im->a2.dsk) {
             if (off == NIC_DATA_OFF)
                 dsk_put_sector(im, blk, &nib[i+3], cur);
         } else {
             if (loaded != cur) {
                 if (dirty) {
-                    F_lseek(&im->fp, im->nib.trk_off + loaded * NIC_BLK_LEN);
+                    F_lseek(&im->fp, im->a2.trk_off + loaded * NIC_BLK_LEN);
                     F_write(&im->fp, blk, NIC_BLK_LEN, NULL);
                 }
-                F_lseek(&im->fp, im->nib.trk_off + cur * NIC_BLK_LEN);
+                F_lseek(&im->fp, im->a2.trk_off + cur * NIC_BLK_LEN);
                 F_read(&im->fp, blk, NIC_BLK_LEN, NULL);
                 loaded = cur;
                 dirty = FALSE;
@@ -447,7 +449,7 @@ static void nic_put_nibbles(struct image *im, const uint8_t *nib,
     }
 
     if (dirty) {
-        F_lseek(&im->fp, im->nib.trk_off + loaded * NIC_BLK_LEN);
+        F_lseek(&im->fp, im->a2.trk_off + loaded * NIC_BLK_LEN);
         F_write(&im->fp, blk, NIC_BLK_LEN, NULL);
     }
 }
@@ -460,7 +462,7 @@ static bool_t nib_write_track(struct image *im)
     uint8_t *nib = (uint8_t *)im->bufs.write_data.p + STAGE_NIB;
     unsigned int bufmask = wr->len - 1;
     uint32_t c = wr->cons, p = wr->prod & ~31;
-    uint8_t acc = im->nib.write.acc, nbits = im->nib.write.nbits;
+    uint8_t acc = im->a2.write.acc, nbits = im->a2.write.nbits;
     bool_t flush;
 
     /* The bit cells up to the end of the write, once that is known. */
@@ -478,25 +480,25 @@ static bool_t nib_write_track(struct image *im)
         acc = (acc << 1) | bit;
         if (++nbits < 8)
             continue;
-        if (im->nib.write.nr < STAGE_NIB_MAX)
-            nib[im->nib.write.nr++] = acc;
+        if (im->a2.write.nr < STAGE_NIB_MAX)
+            nib[im->a2.write.nr++] = acc;
         else
-            im->nib.write.lost = TRUE;
+            im->a2.write.lost = TRUE;
         acc = nbits = 0;
     }
-    im->nib.write.acc = acc;
-    im->nib.write.nbits = nbits;
+    im->a2.write.acc = acc;
+    im->a2.write.nbits = nbits;
     wr->cons = c;
 
     if (!flush)
         return FALSE;
 
-    if (im->nib.write.lost)
-        printk("*** Write overflow, %u kept\n", im->nib.write.nr);
-    if (im->nib.nic)
-        nic_put_nibbles(im, nib, im->nib.write.nr, im->nib.write.start / 8);
+    if (im->a2.write.lost)
+        printk("*** Write overflow, %u kept\n", im->a2.write.nr);
+    if (im->a2.nic)
+        nic_put_nibbles(im, nib, im->a2.write.nr, im->a2.write.start / 8);
     else
-        nib_put_nibbles(im, nib, im->nib.write.nr, im->nib.write.start / 8);
+        nib_put_nibbles(im, nib, im->a2.write.nr, im->a2.write.start / 8);
 
     return TRUE;
 }
