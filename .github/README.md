@@ -18,7 +18,7 @@ Here is [the original FlashFloppy readme on GitHub](https://github.com/keirf/fla
   - Images whose size no Apple2 disk has are left out of the list in Apple2 mode, and an HFE whose header names an encoding that does not suit the mode is refused.
   - **Both wirings of the phases** are taken: the standard one, and that of Oleg Odintsov's Gotek firmware 307 for Agat, with phase 1 on pin 32 of the floppy connector (the `gotek-sa390` project of https://svn.code.sf.net/p/agat-hardware/code).
   - **The displays show the stepper phases** beside the track: a spinner on the OLED, a square whose sides are the phases, so that a seek turns it round; the phases as digits on a character LCD; the lower segments of the first digit on a 3-digit LED display.
-  - See the README's [Apple2 mode](https://github.com/mike-shevchenko/flashfloppy/blob/v3.44m1/README.md#apple2-mode) section for what is detected and what is left out on purpose. A quickstart guide for wiring a Gotek is given below.
+  - See the wiki's [Apple II](https://github.com/mike-shevchenko/flashfloppy/wiki/Apple-II) page for what is detected and what is left out on purpose. A quickstart guide for wiring a Gotek is given below.
 - **The Apple2 bootloader as an update file**, for the AT32F415 in QFN32, such as the SFRKC30.AT2: `alt/apple2/at2-bootloader/flashfloppy-apple2-at2-bootloader-3.44m1.upd`, see below.
 - **The version on a 7-segment display**, shown when the right button is pressed and released while no USB drive is mounted, presents all version details sequentially, in every firmware.
 - **An unknown interface value in flash**, as Oleg Odintsov's firmware 307 writes for its `sa390` interface, is taken as `jc` by every firmware, which crashed on it before.
