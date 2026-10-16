@@ -378,13 +378,13 @@ static void led_7seg_update_track(bool_t force)
         if (apple2_detected && (led_7seg_nr_digits() == 3)) {
             /* The stepper phases on as the four segments of the lower half
              * of the first digit, phases 0 to 3 clockwise round its loop: d,
-             * e, g and c, so that a seek turns an arc. Then the track, its
-             * point lit while writing. */
+             * e, g and c, so that a seek turns an arc, and its top segment,
+             * a, lit while writing. Then the track. */
             unsigned int ph = ti.phases;
-            snprintf(msg, sizeof(msg), "%c%02u%s",
+            snprintf(msg, sizeof(msg), "%c%02u",
                      0x80 | ((ph & 3) << 3) | ((ph & 4) << 4)
-                     | ((ph & 8) >> 1),
-                     ti.cyl, ti.writing ? "." : "");
+                     | ((ph & 8) >> 1) | ti.writing,
+                     ti.cyl);
         } else {
             snprintf(msg, sizeof(msg), "%2u%c", ti.cyl,
                      status[ti.side|(ti.writing<<1)]);
