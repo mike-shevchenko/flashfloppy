@@ -124,9 +124,8 @@ static void drive_change_output(
     case outp_trk0:   pin = pin_26; break;
     case outp_wrprot:
         pin = pin_28;
-#if TARGET == TARGET_apple2
-        assert ^= 1;
-#endif
+        if (apple2_mode)
+            assert ^= 1;
         break;
     default:
         _drive_change_output(drv, outp, assert);
@@ -237,11 +236,19 @@ void floppy_set_fintf_mode(void)
     uint32_t old_active;
     uint8_t mode = ff_cfg.interface;
 
+    /* Flash may hold an interface unknown to this firmware, written by
+     * another one: take it as jc, the default. */
+    if (mode >= ARRAY_SIZE(fintfs))
+        mode = FINTF_JC;
+
     if (mode == FINTF_JC) {
         /* Jumper JC selects default floppy interface configuration:
          *   - No Jumper: Shugart
-         *   - Jumpered:  IBM PC */
-        mode = board_jc_strapped() ? FINTF_IBMPC : FINTF_SHUGART;
+         *   - Jumpered:  IBM PC
+         * Not read once an Apple2 host is detected: on QFN32 its pin is a
+         * phase. */
+        mode = (!apple2_detected && board_jc_strapped())
+            ? FINTF_IBMPC : FINTF_SHUGART;
     }
 
     ASSERT(mode < ARRAY_SIZE(fintfs));
@@ -554,11 +561,16 @@ void floppy_set_cyl(uint8_t unit, uint8_t cyl)
 void floppy_get_track(struct track_info *ti)
 {
     bool_t active = dma_wr != NULL;
-    ti->cyl = drive.cyl;
+    /* An Apple2 host steps in half tracks: show the track of the image. */
+    ti->cyl = !apple2_detected ? drive.cyl
+        : drive.cyl / (active ? (drive.image->step ?: 1) : 2);
     ti->side = active ? drive.head & (drive.image->nr_sides - 1) : 0;
     ti->sel = drive.sel;
     ti->writing = (active && dma_wr->state != DMA_inactive);
     ti->in_da_mode = active ? in_da_mode(drive.image, ti->cyl) : FALSE;
+#if TARGET == TARGET_multi
+    ti->phases = apple2_mode ? apple2_phases : 0;
+#endif
 }
 
 static bool_t index_is_suppressed(struct drive *drv)

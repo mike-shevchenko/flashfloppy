@@ -29,6 +29,12 @@ override target=bootloader
 FLAGS += -DAPPLE2_BOOTLOADER=1
 endif
 
+# And the update that installs it in place of the standard bootloader.
+ifeq ($(target),apple2-bl_update)
+override target=bl_update
+FLAGS += -DAPPLE2_BOOTLOADER=1
+endif
+
 ifeq ($(target),bootloader)
 # Debug bootloader doesn't fit in 32kB
 override level=prod
@@ -50,6 +56,12 @@ $(level) := y
 
 FLAGS += $(MCU_FLAG) $(TARGET_FLAG) $(LEVEL_FLAG)
 
+# fw307=y|n overrides the default support of the Apple2 phases' wiring of
+# Gotek firmware 307 (APPLE2_FW307 in src/gotek/floppy.c).
+ifneq ($(fw307),)
+FLAGS += -DAPPLE2_FW307=$(if $(filter y,$(fw307)),1,0)
+endif
+
 FLAGS += -MMD -MF .$(@F).d
 DEPS = .*.d
 
@@ -58,6 +70,12 @@ FLAGS += $(FLAGS-y)
 CFLAGS += $(CFLAGS-y) $(FLAGS) -include decls.h
 AFLAGS += $(AFLAGS-y) $(FLAGS) -include build_enums.h -D__ASSEMBLY__
 LDFLAGS += $(LDFLAGS-y) $(FLAGS) -Wl,--gc-sections
+
+# The STM32F105 debug firmware is short of Flash: placing the sections by
+# alignment, largest first, leaves almost no padding between them.
+ifeq ($(mcu)-$(level),stm32f105-debug)
+LDFLAGS += -Wl,--sort-section=alignment
+endif
 
 SRCDIR := $(shell $(PYTHON) $(ROOT)/scripts/srcdir.py $(CURDIR) $(ROOT))
 include $(SRCDIR)/Makefile

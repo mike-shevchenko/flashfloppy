@@ -9,7 +9,7 @@
  * See the file COPYING for more details, or visit <http://unlicense.org>.
  */
 
-#if TARGET == TARGET_shugart
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
 
 extern const struct image_handler adf_image_handler;
 extern const struct image_handler atr_image_handler;
@@ -68,6 +68,24 @@ const struct image_type image_type[] = {
     { "", NULL }
 };
 
+#if TARGET == TARGET_multi
+
+extern const struct image_handler nib_image_handler;
+extern const struct image_handler nic_image_handler;
+extern const struct image_handler a2dsk_image_handler;
+
+const struct image_type apple2_image_type[] = {
+    { "hfe", &hfe_image_handler },
+    { "nib", &nib_image_handler },
+    { "nic", &nic_image_handler },
+    { "dsk", &a2dsk_image_handler },
+    { "do", &a2dsk_image_handler },
+    { "po", &a2dsk_image_handler },
+    { "", NULL }
+};
+
+#endif
+
 #elif TARGET == TARGET_apple2
 
 extern const struct image_handler hfe_image_handler;
@@ -89,6 +107,39 @@ const struct image_type image_type[] = {
 #endif
 
 
+/* An Apple2 disk has at most 40 tracks on one side, which an HFE holds in
+ * well under this; a larger one is a disk of another kind. */
+#define HFE_APPLE2_MAX (1280*1024)
+
+unsigned int image_nr_hidden;
+
+#if TARGET == TARGET_multi
+void image_log_hidden(void)
+{
+    if (image_nr_hidden != 0)
+        printk("%u image(s) hidden by size\n", image_nr_hidden);
+    image_nr_hidden = 0;
+}
+
+/* Whether an image of an Apple2 format can hold the one side of 35 to 40
+ * tracks an Apple2 disk has, told by its size alone, which costs no file
+ * access during a folder scan. A sector image has 16 sectors of 256 bytes
+ * per track; one of the Agat may end in a 128-byte trailer naming the
+ * disk. */
+static bool_t apple2_size_valid(const struct image_handler *handler,
+                                uint32_t size)
+{
+    if (handler == &hfe_image_handler)
+        return size <= HFE_APPLE2_MAX;
+    if (handler == &a2dsk_image_handler)
+        return !((size % 4096) & ~128u)
+            && (size / 4096 >= 35) && (size / 4096 <= 40);
+    return TRUE;
+}
+#else
+#define apple2_size_valid(handler, size) TRUE
+#endif
+
 bool_t image_valid(FILINFO *fp)
 {
     char ext[8];
@@ -103,13 +154,22 @@ bool_t image_valid(FILINFO *fp)
 
     /* Check valid extension. */
     filename_extension(fp->fname, ext, sizeof(ext));
-    if ((TARGET == TARGET_shugart) && !strcmp(ext, "adf")) {
+    if (!apple2_mode
+        && ((TARGET == TARGET_shugart) || (TARGET == TARGET_multi))
+        && !strcmp(ext, "adf")) {
         return (ff_cfg.host == HOST_acorn) || !(fp->fsize % (2*11*512));
     } else {
-        const struct image_type *type;
-        for (type = &image_type[0]; type->handler != NULL; type++)
-            if (!strcmp(ext, type->ext))
-                return TRUE;
+        const struct image_type *type = apple2_mode
+            ? &apple2_image_type[0] : &image_type[0];
+        for (; type->handler != NULL; type++) {
+            if (strcmp(ext, type->ext))
+                continue;
+            if (apple2_mode && !apple2_size_valid(type->handler, fp->fsize)) {
+                image_nr_hidden++;
+                return FALSE;
+            }
+            return TRUE;
+        }
     }
 
     return FALSE;
@@ -144,7 +204,7 @@ static bool_t try_handler(struct image *im, struct slot *slot,
     return handler->open(im);
 }
 
-#if TARGET == TARGET_shugart
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
 
 void image_open(struct image *im, struct slot *slot, DWORD *cltbl)
 {
@@ -164,6 +224,15 @@ void image_open(struct image *im, struct slot *slot, DWORD *cltbl)
     /* Extract filename extension (if available). */
     memcpy(ext, slot->type, sizeof(slot->type));
     ext[sizeof(slot->type)] = '\0';
+
+    if (apple2_mode) {
+        /* The Apple2 formats are told apart by extension alone. */
+        for (type = &apple2_image_type[0]; type->handler != NULL; type++)
+            if (!strcmp(ext, type->ext)
+                && try_handler(im, slot, cltbl, type->handler))
+                return;
+        F_die(FR_BAD_IMAGE);
+    }
 
     /* Use the extension as a hint to the correct image handler. */
     for (type = &image_type[0]; type->handler != NULL; type++)
@@ -282,7 +351,7 @@ bool_t image_setup_track(
 {
     const struct image_handler *h = im->track_handler;
 
-#if TARGET == TARGET_shugart
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
     if (!in_da_mode(im, track>>1)) {
         /* If we are exiting D-A mode then need to re-read the config file. */
         if (h == &da_image_handler)
