@@ -35,7 +35,6 @@ FONT_ART = ["""
 # their places in a glyph's rows and columns.
 SEGMENTS = {(0, 1): 0, (1, 2): 1, (2, 2): 2, (2, 1): 3, (2, 0): 4, (1, 0): 5,
             (1, 1): 6}
-POINT = 0x80
 
 # The cells of each glyph in the art, by its name: the segments it lights
 # on each digit that it takes.
@@ -80,10 +79,11 @@ def right(c, width):
 def left(c, width):
     return c + [0] * (width - len(c))
 
-# "UER", then each number of the version, with the points that join it to
-# its neighbors, then any letter part, such as m1, which needs two frames
-# when it does not fit one; or, if the version contains a commit hash, the
-# hash alone after a "-", cut into frames from the left.
+# "UER", then each number of the version, on 3 digits with the dashes that
+# join it to its neighbors where it leaves a digit free, since the display
+# cannot light its decimal points; then any letter part, such as m1, which
+# needs two frames when it does not fit one; or, if the version contains a
+# commit hash, the hash alone after a "-", cut into frames from the left.
 def frames(ver, width):
     out = [cells("UER") if width == 3 else cells("U") + [0]]
     for part in ver.split("-"):
@@ -102,11 +102,11 @@ def frames(ver, width):
     numbers = m.group(1).split(".")
     for i, n in enumerate(numbers):
         c = cells(n)
-        if i + 1 < len(numbers):
-            c[-1] |= POINT
-        if (i > 0) and (len(c) < width):
-            # The point after the digit to the left: a number came before.
-            c = [POINT] + c
+        if width == 3:
+            if (i + 1 < len(numbers)) and (len(c) < width):
+                c = c + cells("-")
+            if (i > 0) and (len(c) < width):
+                c = cells("-") + c
         out.append(right(c, width))
     if m.group(2):
         letter, digits = cells(m.group(2)[0]), cells(m.group(2)[1:])
