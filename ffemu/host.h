@@ -247,6 +247,18 @@ const char *usb_ff_cfg_text(void);
  * firmware sees the drive now, its writes included; false if there is no
  * drive or no such file. */
 bool usb_read_text(const char *name83, char *buf, size_t size);
+/* The same file's first @size bytes, into @buf: its length, or -1 if there
+ * is no drive or no such file. */
+long usb_read_file(const char *name83, void *buf, size_t size);
+/* Whether the drive, as the firmware sees it now, has the folder FF, where
+ * the firmware then keeps its files. */
+bool usb_ff_folder(void);
+/* Whether the medium of the drive, or of the last one while it is out,
+ * holds that file, the firmware's writes aside. */
+bool usb_medium_has(const char *name83);
+/* Whether the drive holds that file as the firmware wrote it, its data in
+ * ffemu's store of the firmware's writes. */
+bool usb_written_file(const char *name83);
 /* While the drive is out, usb_get_info() and usb_ff_cfg_text() tell of the
  * FF.CFG of the last drive. */
 /* Where FF.CFG is, or would be, under directory @dir, as a path relative
@@ -261,9 +273,17 @@ bool usb_save(const char *path, char *err, size_t size);
  */
 
 /* Writes FF.CFG on the USB drive from configuration @cfg, as the flash
- * memory keeps one: every option, or only those that differ from the
- * defaults. Says what it did, or why it could not, in @msg. */
-bool ff_cfg_write(const void *cfg, bool all, char *msg, size_t size);
+ * memory keeps one, which comes from @source, as the file's first line
+ * says: every option, or only those that differ from the flash memory's;
+ * for a drive made from an image, into a file beside the image instead.
+ * Says what it did, or why it could not, in @msg. */
+bool ff_cfg_write(const void *cfg, bool all, const char *source, char *msg,
+                  size_t size);
+/* Where ff_cfg_write() would write: the directory @dir and the file's place
+ * @place in it, and whether a file is there already in @exists; false, with
+ * the reason in @msg, for a disk that the system has not mounted. */
+bool ff_cfg_target(char *dir, size_t dsize, char *place, size_t psize,
+                   bool *exists, char *msg, size_t size);
 /* The value of option @name in the drive's FF.CFG, as the firmware sees the
  * file now, from the last line for it, into @value; false if there is no
  * drive, file or such line. */

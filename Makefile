@@ -45,8 +45,6 @@ apple2-bootloader-%: FORCE
 
 all-%: FORCE prod-% debug-% logfile-% ;
 
-# ffemu, the user interface on a PC, in its two programs: it compiles much
-# of the firmware, so it is built with it.
 ffemu-%: FORCE
 	$(MAKE) -C $(ROOT)/ffemu O=$(O) TARGET=$*
 
