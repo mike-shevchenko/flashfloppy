@@ -7,8 +7,7 @@
 # names of tests to run, as in "make -C tests run T=img_pc". all builds it
 # and runs it only when it has changed since the tests last passed, so that a
 # build that leaves it alone costs nothing and a failing test stops the
-# build. EXTRA_CFLAGS
-# goes to every compile and to the link, as in
+# build. EXTRA_CFLAGS goes to every compile and to the link, as in
 # EXTRA_CFLAGS="-fsanitize=address,undefined -Wno-maybe-uninitialized", the
 # latter for a false warning that the sanitizers bring out in img.c.
 
