@@ -165,7 +165,7 @@ struct dsk_image {
     uint8_t rev;
 };
 
-struct nib_image {
+struct apple2_image {
     uint32_t trk_off;
     uint16_t trk_pos;
     uint16_t trk_len; /* bytes per track in the file */
@@ -248,7 +248,7 @@ struct image {
         struct qd_image qd;
         struct img_image img;
         struct dsk_image dsk;
-        struct nib_image nib;
+        struct apple2_image a2;
         struct directaccess da;
     };
 

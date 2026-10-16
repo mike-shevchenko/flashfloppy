@@ -221,7 +221,7 @@ TEST(apple2_dsk_stream)
         make_track(&want[t*TRK_LEN], disk, t, dos_order, 0);
     CHECK_MEM(got, want, 35*TRK_LEN);
     CHECK_EQ(crc32(got, 35*TRK_LEN), CRC_MADE_UP);
-    CHECK(!log_has("ProDOS order"));
+    CHECK(!log_has(".DSK: ProDOS"));
 }
 
 /* .do and .po name their order: the same disk streams the same. */
@@ -237,12 +237,12 @@ TEST(apple2_do_po_stream)
     REQUIRE(image_mount("MADEUP.DO") == FR_OK);
     stream_all(35);
     CHECK_EQ(crc32(got, 35*TRK_LEN), CRC_MADE_UP);
-    CHECK(!log_has("ProDOS order"));
+    CHECK(!log_has(".DSK: ProDOS"));
 
     REQUIRE(image_mount("MADEUP.PO") == FR_OK);
     stream_all(35);
     CHECK_EQ(crc32(got, 35*TRK_LEN), CRC_MADE_UP);
-    CHECK(log_has("ProDOS order"));
+    CHECK(!log_has(".DSK: ProDOS"));
 }
 
 TEST(apple2_dsk_sizes_mount)
@@ -290,13 +290,13 @@ TEST(apple2_prodos_detection)
     REQUIRE(image_mount("PRODOS.DSK") == FR_OK);
     stream_all(35);
     CHECK_EQ(crc32(got, 35*TRK_LEN), CRC_PRODOS_DSK);
-    CHECK(log_has("ProDOS order"));
+    CHECK(log_has(".DSK: ProDOS"));
 
     ft_fw_log_clear();
     REQUIRE(image_mount("PRODOS.DO") == FR_OK);
     stream_all(35);
     CHECK_EQ(crc32(got, 35*TRK_LEN), CRC_PRODOS_DO);
-    CHECK(!log_has("ProDOS order"));
+    CHECK(!log_has(".DSK: ProDOS"));
 }
 
 /* A .nic streams its records' first 416 bytes, a .nib its bytes. */
