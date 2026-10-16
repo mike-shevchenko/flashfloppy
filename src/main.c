@@ -1564,7 +1564,7 @@ out:
 
 clear_image_a:
     /* Error! Clear the IMAGE_A.CFG file. */
-    printk("IMAGE_A.CFG is bad: clearing it\n");
+    printk("Bad IMAGE_A.CFG: clearing\n");
     F_lseek(&fs->file, 0);
     lcd_write(0, 3, -1, "/");
     F_truncate(&fs->file);
@@ -1685,7 +1685,7 @@ static void native_update(uint8_t slot_mode)
     if (cfg.sorted) {
 
         struct native_dirent *ent = cfg.sorted[cfg.slot_nr-i];
-        snprintf(fs->fp.fname, sizeof(fs->fp.fname), ent->name);
+        snprintf(fs->fp.fname, sizeof(fs->fp.fname), "%s", ent->name);
         fs->file.obj.fs = &fatfs;
         fs->file.dir_sect = ent->dir_sect;
         fs->file.dir_ptr = fatfs.win + ent->dir_off;
