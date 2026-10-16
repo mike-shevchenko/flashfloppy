@@ -28,6 +28,52 @@ like a real floppy drive but use disk images on a modern USB stick!
 ## Documentation
 - [**Read the GitHub Wiki**](https://github.com/keirf/flashfloppy/wiki)
 
+## Apple2 mode
+
+The multi firmware, in alt/multi/ of a release, serves an Apple2
+host, an Agat or a Pravetz with a Disk II controller among them, and a
+Shugart host as well: it watches the four stepper phase inputs for
+200 ms at boot and switches to Apple2 mode when an Apple2 controller
+drives them, else it works as the shugart firmware does. In Apple2
+mode it serves 140K disks from HFE, .nib, .nic, .dsk, .do and .po
+images. The shugart firmware has no Apple2 mode, and the apple2
+firmware, in alt/apple2/, has that mode alone, with HFE images only.
+
+Detected automatically:
+- The host, at boot: Apple2 when at least three of the four phase
+  inputs are low for a quarter of the window, Shugart otherwise.
+- The wiring of Oleg Odintsov's Gotek firmware 307 for the Agat, with
+  phase 1 on pin 32 of the floppy connector, as well as the standard
+  one; not in the debug build for the STM32F105 and AT32F415.
+- The sector order of a .dsk: ProDOS order if a ProDOS volume
+  directory starts in block 2 where ProDOS order puts it, DOS 3.3
+  order otherwise. A .do is always in DOS 3.3 order and a .po in
+  ProDOS order, so renaming the file overrides a wrong guess.
+- The 128-byte trailer that names the disk at the end of some Agat
+  .dsk images, which is left as it is.
+- Images that cannot be Apple2 disks, by their size alone: an HFE over
+  1.25 MB and a sector image of other than 35 to 40 tracks are left
+  out of the list, so 840K Agat disks do not show in Apple2 mode.
+- An HFE whose header names an encoding that does not suit the mode,
+  GCR in Shugart mode or any other in Apple2 mode, is refused.
+
+Deliberately left out, as rare, or because the guess would be made
+from the disk's contents with no way to override it:
+- An HFE whose header leaves the encoding unknown, as Greaseweazle
+  writes Apple2 images, is served in either mode; the logfile build
+  notes when its first track looks like the other encoding. Telling
+  the encoding from the data would misjudge damaged disks.
+- A 160K PC image named .dsk is listed in Apple2 mode and served as
+  noise.
+- A sector image keeps no volume number: its sectors carry 254, the
+  one DOS 3.3 formats with, and software that wants another fails.
+- A sector image holds standard 16-sector tracks only. Half tracks,
+  nonstandard sectors and other copy protection need .nib, .nic or
+  HFE; a write to a sector image that is not a standard data field is
+  dropped, with a "Bad CRC" line in the log.
+- DOS 3.2's 13-sector disks are not supported.
+- In Shugart mode .dsk keeps its usual meaning.
+
 ## Redistribution
 
 Most code is public domain; the rest is MIT/BSD or Open Source friendly

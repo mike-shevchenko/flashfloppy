@@ -17,18 +17,23 @@ Written with the help of Claude.
 
 ## Building
 
-    make -C ffemu [O=<path>] [TARGET=shugart|apple2]
+    make -C ffemu [O=<path>] [TARGET=shugart|apple2|multi]
 
-The plain `make` at the top of the tree builds both programs as well, along
-with the firmware and with the same `O=`, so that a firmware change that breaks
-ffemu fails the regular build.
+The plain `make` at the top of the tree builds the three programs as well,
+along with the firmware and with the same `O=`, so that a firmware change that
+breaks ffemu fails the regular build.
 
 The program is `out/ffemu/ffemu` under `<path>`, which defaults to the top of
-the source tree. `TARGET=apple2` builds `out/ffemu-apple2/ffemu-apple2`
-instead, which runs the Apple2 firmware: it lists only HFE images, and its
-board code is that of the release, which keeps the rotary encoder where the
-Apple2 debug build puts two stepper phases. The two programs keep their
-settings and logs apart, in `ffemu/` and `ffemu-apple2/` of the directories
+the source tree. It runs the shugart firmware, which serves a Shugart host.
+`TARGET=apple2` builds `out/ffemu-apple2/ffemu-apple2` instead, which runs the
+apple2 firmware: it serves an Apple2 host and lists only HFE images.
+`TARGET=multi` builds `out/ffemu-multi/ffemu-multi`, which runs the multi
+firmware: it serves a Shugart host and an Apple2 host alike, detecting which
+one it is connected to as it boots, and in its Apple2 mode lists only the
+Apple2 images, HFE, .nib, .nic, .dsk, .do and .po. In all three, the board and
+floppy code is that of the release, which keeps the rotary encoder where a
+debug build puts two stepper phases. The programs keep their settings and logs
+apart, in `ffemu/`, `ffemu-apple2/` and `ffemu-multi/` of the directories
 below. The build needs a C compiler, `objcopy`, Python 3 (for the font and
 configuration generators of the firmware build) and the wide-character
 "ncurses" library with its headers: `ncurses-devel` on Cygwin/MSYS2,
@@ -180,15 +185,15 @@ it included, stays.
 
 ## The floppy interface
 
-The FDD rows of the Controls pane show the kind of controller on the other side
-of the cable, `Step/Dir` or `Apple2`, and the signals that it sends to the
-drive, each lit in dark yellow while it is active as on the schematics,
-whatever its voltage, with the key that changes it below:
+The FDD rows of the Controls pane show the FDD type, the kind of controller on
+the other side of the cable, `Step/Dir` or `Apple2`, and the signals that it
+sends to the drive, each lit in dark yellow while it is active as on the
+schematics, whatever its voltage, with the key that changes it below:
 
-- Shugart: `[` toggles D_S (drive select), `]` M_O (motor on), `-` DIR (step
-  direction: active, as at the start, steps inward to higher tracks), `+` sends
-  a STP (step) pulse, which stays lit for a moment, and `\` toggles SID (side
-  select).
+- Step/Dir (Shugart, PC and the like): `[` toggles D_S (drive select), `]` M_O
+  (motor on), `-` DIR (step direction: active, as at the start, steps inward to
+  higher tracks), `+` sends a STP (step) pulse, which stays lit for a moment,
+  and `\` toggles SID (side select).
 - Apple2: `[` toggles D_E (drive enable), and `+` and `-` move the stepper
   phases PH0 to PH3 to their next or previous state in the cycle a computer
   goes through: phase 0 alone, phases 0 and 1, phase 1 alone, and so on. The
@@ -197,13 +202,33 @@ whatever its voltage, with the key that changes it below:
   between seeks; the state they were in is kept, shown in bright green to the
   right of the phases, and the next press goes on from it.
 
+In `ffemu-multi`, key `8` opens the FDD type dialog, which chooses between the
+two and power-cycles the device, since the firmware detects the type as it
+boots: it is on an Apple2 if at least three of the four phases are held low, as
+an Apple2 does at power-on, for at least a quarter of its 200 ms "5v settle"
+delay. The type is kept in the settings as `fdd-type`. In `ffemu` and
+`ffemu-apple2` the firmware has no such choice, so there is no dialog, and the
+type is always Step/Dir or always Apple2.
+
+The Apple2 type drives the phases as a "universal" cable does, one that serves
+the stock Apple2 firmware, Oleg Odintsov's Gotek firmware 307 for the Agat (the
+gotek-sa390 project of https://svn.code.sf.net/p/agat-hardware/code) and this
+one alike: at the MCU, PH0 on PA10, PH1 on PA9 and on pin 32 at the same time,
+PH2 and PH3 on the DIR and STEP pins. That is hard-coded: ffemu is for the user
+interface, not for trying wirings, so the firmware's second pin set, PH1 on pin
+32 alone, is never what it sees, and the standard set always wins its boot-time
+detection.
+
 `=` also works as `+`, and `/` as `\`, which is the key that types it on a
 Russian layout, as do the keys of `[` and `]`. The drive selected or enabled is
 the default. The signals survive a power cycle of the device (Home), as the
-computer's would; Ctrl+Home puts them back to the defaults. The Status pane
-shows the cylinder and the side as the firmware sees them, and, as Floppy, the
-image mounted; the firmware's display shows them as on the device, and the
-beeper sounds each step, unless `step-volume` is 0.
+computer's would; Ctrl+Home or a change of the FDD type puts them back to the
+defaults. The Status pane shows the drive as the firmware sees it, labeled with
+the mode that the firmware detected, `Step/Dir` or `Apple2`: the cylinder and
+the side, and, as Floppy, the image mounted; the firmware's display shows them
+as on the device, and the beeper sounds each step, unless `step-volume` is 0.
+The firmware's banner, shown while no USB drive is in, ends in `A2` in the
+Apple2 mode.
 
 The firmware's own floppy code, `src/floppy.c` with what it includes, runs in
 ffemu against models of the pins, of their EXTI interrupts and of the timer
@@ -243,23 +268,32 @@ writes to flash memory. Also there is a TUI dialog to edit those values right
 in the emulated flash memory; in it, a dark gray `=` at the left of a radio
 button marks the factory default, the value the firmware has when its flash
 memory holds no settings, and at the left of a check box, that it is checked by
-default. Note that if the USB drive contains `FF.CFG`, settings in it will be
-read by the firmware on start or restart, and will immediately be written to
-the flash memory over what was there before.
+default. The dialog offers only the options that matter to what ffemu
+emulates; the others keep their values. Its last row explains the control or
+the value under the cursor. Note that if the USB drive contains `FF.CFG`,
+settings in it will be read by the firmware on start or restart, and will
+immediately be written to the flash memory over what was there before. So OK,
+which writes the dialog's values to flash and power-cycles the device, first
+checks `FF.CFG` on the drive: if the file sets some of them otherwise, ffemu
+asks whether to change them in `FF.CFG` as well, or, for a drive made from an
+image, which it never writes, whether to write flash anyway.
 
-The dialog's buttons `Save all to FF.CFG` and `Save diff-from-flash to FF.CFG`
-write `FF.CFG` on the USB drive, into its `FF` folder if it has one, in the
-directory a drive was made from, or on a real drive where the system has it
-mounted; for a drive made from an image file, which ffemu never writes, they
-ask first and write a file beside the image instead, named as the image with
-`.FF.CFG` appended, which the firmware does not see: the firmware's example
-`FF.CFG` with the values as the dialog shows them, edits included, every option
-or only those that differ from what flash holds (the firmware keeps the flash
-value of an option a file does not name), each below its comments; the previous
-file is kept as `FF.CFG.BAK`. Nothing else happens: the dialog stays open,
-flash changes only on OK, and the firmware reads the file when the drive is
-next inserted or the device restarts; the bottom line says what was written.
-The third, `Unpack FLASH.DMP to ffemurc`, is enabled while the drive holds
+The dialog's buttons `Save all to FF.CFG`, `Save diff-from-defaults to FF.CFG`
+and `Save diff-from-flash to FF.CFG` write `FF.CFG` on the USB drive, into its
+`FF` folder if it has one, in the directory a drive was made from, or on a real
+drive where the system has it mounted; for a drive made from an image file,
+which ffemu never writes, they ask first and write a file beside the image
+instead, named as the image with `.FF.CFG` appended, which the firmware does
+not see: the firmware's example `FF.CFG` with the values as the dialog shows
+them, edits included, each below its comments: every option; those that differ
+from the defaults or from what flash holds, which once OK has written flash are
+the options set otherwise than by default; or only those that differ from what
+flash holds, since the firmware keeps the flash value of an option a file does
+not name. The previous file is kept as `FF.CFG.BAK`. Nothing else happens: the
+dialog stays open, flash changes only on OK, and the firmware reads the file
+when the drive is next inserted or the device restarts; the bottom line says
+what was written.
+The fourth, `Unpack FLASH.DMP to ffemurc`, is enabled while the drive holds
 `FLASH.DMP` beside `FF.CFG`: the settings area of a Gotek's flash memory, which
 the firmware writes there, before it reads `FF.CFG`, at the first insertion of
 a drive after "Save FLASH.DMP" in its main menu (a short press of both buttons,
@@ -273,7 +307,7 @@ override after the restart; then it puts the settings of the slot that the
 firmware would take from it, or no settings if it holds none, into the emulated
 flash memory, and so into the settings file, as OK puts the dialog's: the
 dialog's edits are dropped, `FF.CFG` is checked for options that it would undo,
-and the device is power-cycled. The fourth, `Unpack FLASH.DMP to FF.CFG`,
+and the device is power-cycled. The fifth, `Unpack FLASH.DMP to FF.CFG`,
 enabled likewise, writes every option of the dump into `FF.CFG`, where the Save
 buttons write it, the old file kept as `.BAK`, after asking in the same way,
 naming the file it takes and the one it writes; flash stays as it is, and the
@@ -297,12 +331,13 @@ to standard output, which is how it can be tested without a terminal:
 The commands are `key <action>`, the action being `select`, `left`, `right`,
 `cw`, `ccw`, `remove`, `insert`, `reset` (Home), `relaunch` (Ctrl+Home), `quit`
 or `latch`, or on the floppy interface `sel`, `motor`, `dir`, `step` or `side`
-for Shugart, and `sel`, `phase-in`, `phase-out` or `release` for Apple2,
-`sleep <ms>`, `dump` (the display as text: an LCD as its rows of characters
-between bars), `log` (the firmware's console output so far), `status`, `flash`
-(the `[Flash mem]` section as the flash memory is now), and `save <file>`,
-which writes the USB drive as the firmware sees it, its writes included, to an
-image file.
+for Step/Dir, and `sel`, `phase-in`, `phase-out` or `release` for Apple2,
+`fdd-type <step-dir|apple2>`, which in `ffemu-multi` sets the FDD type and
+power-cycles the device as the dialog does, `sleep <ms>`, `dump` (the display
+as text: an LCD as its rows of characters between bars), `log` (the firmware's
+console output so far), `status`, `flash` (the `[Flash mem]` section as the
+flash memory is now), and `save <file>`, which writes the USB drive as the
+firmware sees it, its writes included, to an image file.
 
 ## How it works
 
@@ -313,8 +348,10 @@ image file.
   interface needs: GPIO inputs for the buttons, the rotary encoder and the
   floppy interface, with their EXTI interrupts as AFIO routes them, the two
   GPIO lines of the LED display, TIM2 capturing STEP, the one-shot timer of
-  `src/timer.c`, and the I2C master with its DMA channel. The I2C bus also runs
-  on a thread of its own, beside the firmware, as the hardware does, so that an
+  `src/timer.c`, and the I2C master with its DMA channel. The floppy signals go
+  to the pins of the FDD type in use: STEP and DIR, or the four stepper phases
+  on the release's pins, PA10, PA9, PB0 and PA1. The I2C bus also runs on a
+  thread of its own, beside the firmware, as the hardware does, so that an
   interrupt handler that waits for the bus is released whatever the firmware's
   thread is doing.
 - `stubs.c`: stand-ins for MCU bring-up, the serial console, the configuration
@@ -348,7 +385,9 @@ with the host C library. Only `emu.h` is shared between the two.
 - The LCD's user-defined characters, its cursor, and a PCF8574A backpack, at
   0x3f, which the firmware would find just as well.
 - FF OSD.
-- Getting `IMAGE_A.CFG` written by the firmware.
+- The firmware's writes reaching the host files, the image or the disk:
+  `IMAGE_A.CFG`, `FLASH.DMP` and the like are kept aside until the drive is
+  removed.
 - FAT16 on a USB drive made from a directory, which is always FAT32; an image
   or a disk may be FAT16.
 - A setting for the code page of short names, in place of the system's.

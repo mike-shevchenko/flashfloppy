@@ -1,9 +1,11 @@
 # ffemu: runs the FlashFloppy user interface in a terminal, with no hardware.
 #
-# Usage: make -C ffemu [O=<path>] [TARGET=shugart|apple2]
+# Usage: make -C ffemu [O=<path>] [TARGET=shugart|apple2|multi]
 #
-# The program is built as $(O)/out/ffemu/ffemu, or for the Apple2 firmware
-# as $(O)/out/ffemu-apple2/ffemu-apple2. O defaults to the top of the source
+# The program is built as $(O)/out/ffemu/ffemu, which runs the shugart
+# firmware, for the apple2 firmware as $(O)/out/ffemu-apple2/ffemu-apple2,
+# or for the multi firmware, with its Step/Dir and Apple2 modes, as
+# $(O)/out/ffemu-multi/ffemu-multi. O defaults to the top of the source
 # tree, as in the main Makefile.
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))..)
@@ -14,8 +16,10 @@ ifeq ($(TARGET),shugart)
 NAME := ffemu
 else ifeq ($(TARGET),apple2)
 NAME := ffemu-apple2
+else ifeq ($(TARGET),multi)
+NAME := ffemu-multi
 else
-$(error TARGET must be shugart or apple2)
+$(error TARGET must be shugart, apple2 or multi)
 endif
 
 O ?= $(ROOT)
@@ -40,6 +44,9 @@ FW_SRCS += display/display.c display/lcd_stm32f105.c display/led_7seg.c
 FW_SRCS += gotek/board.c gotek/speaker.c floppy.c
 FW_SRCS += image/image.c image/adf.c image/dsk.c image/hfe.c image/img.c
 FW_SRCS += image/da.c image/dummy.c image/mfm.c
+ifeq ($(TARGET),multi)
+FW_SRCS += image/nib.c
+endif
 EMU_FW_SRCS := hw.c stubs.c
 # Display fonts, generated from fonts/ as in src/display/Makefile.
 FONTS := 6x13 8x16
@@ -69,6 +76,9 @@ HOST_CFLAGS := -std=gnu11 -O2 -g -Wall -Werror -D_GNU_SOURCE
 HOST_CFLAGS += -DNCURSES_WIDECHAR=1 -DFFEMU_NAME='"$(NAME)"'
 ifeq ($(TARGET),apple2)
 HOST_CFLAGS += -DFFEMU_APPLE2=1
+endif
+ifeq ($(TARGET),multi)
+HOST_CFLAGS += -DFFEMU_MULTI=1
 endif
 HOST_CFLAGS += -MMD -MP
 
@@ -100,6 +110,13 @@ $(OUT)/ff_cfg_defaults.h: $(ROOT)/examples/FF.CFG $(ROOT)/scripts/mk_config.py
 
 $(OUT)/fw/main.o $(OUT)/emu/stubs.o: $(OUT)/ff_cfg_defaults.h
 
+.PHONY: FORCE
+$(OUT)/led_ver.h: FORCE
+	@mkdir -p $(dir $@)
+	$(Q)$(PYTHON) $(ROOT)/scripts/mk_led_ver.py "$(VER)" $@
+
+$(OUT)/fw/main.o: $(OUT)/led_ver.h
+
 # The firmware's example FF.CFG, which documents every option, built in for
 # writing FF.CFG from the flash memory.
 $(OUT)/gen/ff_cfg_example.c: $(ROOT)/examples/FF.CFG mk_text.py
@@ -114,13 +131,11 @@ $(OUT)/gen/%.o: $(OUT)/gen/%.c
 	@echo CC $*.c
 	$(Q)$(CC) $(FW_CFLAGS) -c $< -o $@
 
-# The Apple2 debug build moves two stepper phases onto the rotary encoder
+# A debug build moves two Apple2 stepper phases onto the rotary encoder
 # pins; the board and floppy code of the logfile level keep them where the
 # release has them, and ffemu takes the console output itself.
-ifeq ($(TARGET),apple2)
 $(OUT)/fw/gotek/board.o $(OUT)/fw/floppy.o: \
     FW_CFLAGS += -ULEVEL -DLEVEL=LEVEL_logfile
-endif
 
 # As in src/display/Makefile: the main firmware has both fonts.
 $(OUT)/fw/display/lcd_stm32f105.o: FW_CFLAGS += -Dfont_extra=1

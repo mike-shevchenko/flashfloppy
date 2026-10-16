@@ -246,7 +246,8 @@ static void display_write_slot(bool_t nav_mode)
     if (slot_type("v9t9")) {
         snprintf(typename, sizeof(typename), "T99");
     } else if (!(cfg.slot.attributes & AM_DIR)) {
-        for (type = &image_type[0]; type->handler != NULL; type++)
+        type = apple2_mode ? &apple2_image_type[0] : &image_type[0];
+        for (; type->handler != NULL; type++)
             if (slot_type(type->ext))
                 break;
         if (type->handler != NULL) {
@@ -290,10 +291,28 @@ static void lcd_write_track_info(bool_t force)
 
     if (force || (ti.cyl != lcd_ti.cyl)
         || ((ti.side != lcd_ti.side) && ti.sel)
-        || (ti.writing != lcd_ti.writing)) {
-        snprintf(msg, sizeof(msg), "%c T:%02u.%u",
-                 (cfg.slot.attributes & AM_RDO) ? '*' : ti.writing ? 'W' : ' ',
-                 ti.cyl, ti.side);
+        || (ti.writing != lcd_ti.writing)
+        || ((TARGET == TARGET_multi) && (ti.phases != lcd_ti.phases))) {
+        char wp = (cfg.slot.attributes & AM_RDO) ? '*' : ti.writing ? 'W' : ' ';
+        if (apple2_detected) {
+            /* The phase spinner, two cells, then the phases on as "0..3"
+             * with dots for those off, then the track after T, or after W
+             * while writing and * when write protected. An LCD, which has
+             * no glyph for the spinner, gets a blank, and on 16 columns
+             * the cell spared as a blank before T. */
+            char ph[5];
+            unsigned int i;
+            for (i = 0; i < 4; i++)
+                ph[i] = (ti.phases & (1u<<i)) ? '0'+i : '.';
+            ph[4] = '\0';
+            snprintf(msg, sizeof(msg),
+                     (lcd_columns > 16) ? " %c %s %c:%02u"
+                     : is_oled_display ? "%c %s%c%02u" : "%c%s %c%02u",
+                     is_oled_display ? 0x80 | ti.phases : ' ', ph,
+                     (wp == ' ') ? 'T' : wp, ti.cyl);
+        } else {
+            snprintf(msg, sizeof(msg), "%c T:%02u.%u", wp, ti.cyl, ti.side);
+        }
         lcd_write(wp_column, 1, -1, msg);
         if (ff_cfg.display_on_activity != DISPON_no)
             lcd_on();
@@ -311,14 +330,15 @@ static void led_7seg_update_track(bool_t force)
 
     bool_t changed;
     struct track_info ti;
-    char msg[4];
+    char msg[(TARGET == TARGET_multi) ? 6 : 4];
 
     if (display_type != DT_LED_7SEG)
         return;
 
     floppy_get_track(&ti);
     changed = (ti.cyl != led_ti.cyl) || ((ti.side != led_ti.side) && ti.sel)
-        || (ti.writing != led_ti.writing);
+        || (ti.writing != led_ti.writing)
+        || ((TARGET == TARGET_multi) && (ti.phases != led_ti.phases));
 
     if (force) {
         /* First call afer mounting new image: forcibly show track nr. */
@@ -355,8 +375,20 @@ static void led_7seg_update_track(bool_t force)
 
     if (!showing_track || changed) {
         const static char status[] = { 'k', 'm', 'v', 'w' };
-        snprintf(msg, sizeof(msg), "%2u%c", ti.cyl,
-                 status[ti.side|(ti.writing<<1)]);
+        if (apple2_detected && (led_7seg_nr_digits() == 3)) {
+            /* The stepper phases on as the four segments of the lower half
+             * of the first digit, phases 0 to 3 clockwise round its loop: d,
+             * e, g and c, so that a seek turns an arc. Then the track, its
+             * point lit while writing. */
+            unsigned int ph = ti.phases;
+            snprintf(msg, sizeof(msg), "%c%02u%s",
+                     0x80 | ((ph & 3) << 3) | ((ph & 4) << 4)
+                     | ((ph & 8) >> 1),
+                     ti.cyl, ti.writing ? "." : "");
+        } else {
+            snprintf(msg, sizeof(msg), "%2u%c", ti.cyl,
+                     status[ti.side|(ti.writing<<1)]);
+        }
         led_7seg_write_string(msg);
         showing_track = TRUE;
     }
@@ -855,6 +887,7 @@ complete:
     qsort_p(p_ent, nr, native_dir_cmp);
 
     F_closedir(&fs->dp);
+    image_log_hidden();
 
     volume_cache_init(ent, p_ent);
     cfg.sorted = p_ent;
@@ -1652,6 +1685,7 @@ static void native_get_slot_map(bool_t sorted_only)
         while (native_dir_next())
             cfg.max_slot_nr++;
         F_closedir(&fs->dp);
+        image_log_hidden();
     }
 
     /* Adjust max_slot_nr. Must be at least one 'slot'. */
@@ -3141,11 +3175,12 @@ static void noinline banner(void)
 #endif
         led_7seg_write_string(
 #if LEVEL == LEVEL_logfile
-            "LOG"
+            apple2_detected ? "A2L" : "LOG"
 #elif TARGET == TARGET_quickdisk
             (led_7seg_nr_digits() == 3) ? "Q"sep_ch"D" : "QD"
 #else
-            (led_7seg_nr_digits() == 3) ? "F"sep_ch"F" : "FF"
+            apple2_detected ? ((led_7seg_nr_digits() == 3) ? "A"sep_ch"2" : "A2")
+            : (led_7seg_nr_digits() == 3) ? "F"sep_ch"F" : "FF"
 #endif
             );
 #undef sep_ch
@@ -3161,11 +3196,11 @@ static void noinline banner(void)
 #endif
         snprintf(msg[0], sizeof(msg[0]), "%s%s", fw_ver,
 #if LEVEL == LEVEL_logfile
-                 " Log"
+                 apple2_detected ? " A2L" : " Log"
 #elif TARGET == TARGET_quickdisk
                  " QD"
 #else
-                 ""
+                 apple2_detected ? " A2" : ""
 #endif
             );
         snprintf(msg[1], sizeof(msg[1]), "%9s %dkB", msg[0], ram_kb);
@@ -3197,12 +3232,15 @@ static void check_buttons(void)
     banner();
 }
 
+/* "UER" and the version, as frames laid out by the build for 3 digits
+ * (led_ver3) and for 2 (led_ver2). */
+#include "led_ver.h"
+
 static void maybe_show_version(void)
 {
+    const uint8_t (*v)[3];
+    unsigned int i, nr;
     uint8_t b, nb;
-    const char *p, *np;
-    char msg[3];
-    int len;
 
     /* LCD/OLED already displays version info in idle state. */
     if (display_type != DT_LED_7SEG)
@@ -3228,16 +3266,15 @@ static void maybe_show_version(void)
     led_7seg_write_decimal(ram_kb);
     delay_ms(1000);
 
-    led_7seg_write_string("UER");
-    delay_ms(1000);
-
-    /* Iterate through the dotted sections of the version number. */
-    for (p = fw_ver; p != NULL; p = np ? np+1 : NULL) {
-        np = strchr(p, '.');
-        memset(msg, ' ', sizeof(msg));
-        len = min_t(int, np ? np - p : strnlen(p, sizeof(msg)), sizeof(msg));
-        memcpy(&msg[sizeof(msg) - len], p, len);
-        led_7seg_write_string(msg);
+    if (led_7seg_nr_digits() == 3) {
+        v = led_ver3;
+        nr = ARRAY_SIZE(led_ver3);
+    } else {
+        v = led_ver2;
+        nr = ARRAY_SIZE(led_ver2);
+    }
+    for (i = 0; i < nr; i++) {
+        led_7seg_write_raw(v[i]);
         delay_ms(1000);
     }
 
@@ -3310,7 +3347,11 @@ int main(void)
     console_init();
     board_init();
     console_crash_on_input();
+#if TARGET == TARGET_multi
+    apple2_detect(200); /* 5v settle */
+#else
     delay_ms(200); /* 5v settle */
+#endif
 
     printk("\n** FlashFloppy %s\n", fw_ver);
     printk("** Keir Fraser <keir.xen@gmail.com>\n");
