@@ -54,13 +54,8 @@ ffemu-%: FORCE
 
 ffemu: FORCE ffemu-shugart ffemu-apple2 ffemu-multi ;
 
-# The unit tests, on a PC: see tests/Makefile. They are compiled with the
-# firmware, and "make test" runs them.
 tests: FORCE
 	$(MAKE) -C $(ROOT)/tests O=$(O) all
-
-test: FORCE
-	$(MAKE) -C $(ROOT)/tests O=$(O) run
 
 all: FORCE all-stm32f105 all-at32f435 apple2-bootloader-stm32f105 ffemu \
     tests ;

@@ -20,8 +20,8 @@ jobs:
     - name: Dependency packages (pip)
       run: python3 -m pip install --user crcmod intelhex
 
-    - name: Unit tests
-      run: make -j4 test
+    - name: Tests
+      run: make -j4 tests
 
     - name: Build dist
       run: |
