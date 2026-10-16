@@ -334,10 +334,11 @@ or `latch`, or on the floppy interface `sel`, `motor`, `dir`, `step` or `side`
 for Step/Dir, and `sel`, `phase-in`, `phase-out` or `release` for Apple2,
 `fdd-type <step-dir|apple2>`, which in `ffemu-multi` sets the FDD type and
 power-cycles the device as the dialog does, `sleep <ms>`, `dump` (the display
-as text: an LCD as its rows of characters between bars), `log` (the firmware's
-console output so far), `status`, `flash` (the `[Flash mem]` section as the
-flash memory is now), and `save <file>`, which writes the USB drive as the
-firmware sees it, its writes included, to an image file.
+as text: an LCD as its rows of characters between bars, a 7-segment display as
+its digits drawn with `_` and `|` in three rows, a lit point as `.`), `log`
+(the firmware's console output so far), `status`, `flash` (the `[Flash mem]`
+section as the flash memory is now), and `save <file>`, which writes the USB
+drive as the firmware sees it, its writes included, to an image file.
 
 ## How it works
 
