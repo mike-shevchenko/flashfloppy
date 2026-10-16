@@ -287,16 +287,6 @@ void led_text(const struct led_view *v, char *buf, size_t size)
     for (i = 0; (i < v->nr_digits) && (n + 7 < size); i++) {
         uint8_t s = v->on ? v->seg[i] & 0x7f : 0;
         char c = '?';
-        if (s && !(s & ~0x5c)) {
-            /* Only the lower loop lit, d, e, g and c: the stepper phases
-             * 0 to 3 as the firmware's Apple2 mode shows them. */
-            static const uint8_t phase[4] = { 0x08, 0x10, 0x40, 0x04 };
-            for (j = 0; j < 4; j++)
-                if (s & phase[j])
-                    buf[n++] = '0' + j;
-            buf[n++] = ' ';
-            continue;
-        }
         if (s == 0)
             c = ' ';
         for (j = 0; j < ARRAY_SIZE(digits); j++)
@@ -310,6 +300,26 @@ void led_text(const struct led_view *v, char *buf, size_t size)
             buf[n++] = '.';
     }
     buf[n] = '\0';
+}
+
+void led_art(const struct led_view *v, char art[3][16])
+{
+    /* Where each segment, a to g and the point, is drawn in a digit's
+     * cells, three rows of four columns. */
+    static const struct { uint8_t row, col; char c; } cell[8] = {
+        { 0, 1, '_' }, { 1, 2, '|' }, { 2, 2, '|' }, { 2, 1, '_' },
+        { 2, 0, '|' }, { 1, 0, '|' }, { 1, 1, '_' }, { 2, 3, '.' }
+    };
+    unsigned int i, j, w = 4 * v->nr_digits;
+
+    for (j = 0; j < 3; j++) {
+        memset(art[j], ' ', w);
+        art[j][w] = '\0';
+    }
+    for (i = 0; i < v->nr_digits; i++)
+        for (j = 0; j < 8; j++)
+            if (v->on && (v->seg[i] & (1u << j)))
+                art[cell[j].row][4*i + cell[j].col] = cell[j].c;
 }
 
 /*
