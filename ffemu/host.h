@@ -10,9 +10,17 @@
 #ifndef FFEMU_HOST_H
 #define FFEMU_HOST_H
 
-#define FFEMU_VERSION "1.0"
+/* The program name, which also names its directories of settings and logs. */
+#ifndef FFEMU_NAME
+#define FFEMU_NAME "ffemu"
+#endif
+/* 1 where the firmware is that of the Apple2 target. */
+#ifndef FFEMU_APPLE2
+#define FFEMU_APPLE2 0
+#endif
 
 #include <stdbool.h>
+#include <stdio.h>
 #include "emu.h"
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
@@ -106,6 +114,7 @@ struct usb_info {
     bool writes_lost;      /* such sectors were dropped: the files changed */
     uint64_t image_bytes;
     char ff_cfg[16];  /* the FF.CFG that the firmware reads, as on the drive */
+    unsigned int ff_cfg_gen; /* changes whenever FF.CFG is to be read again */
     char case_dup[160]; /* the first of those left out, as a path */
     char error[160];  /* why the last usb_insert() failed, or "" */
 };
@@ -119,13 +128,29 @@ bool usb_insert(const char *path, bool keep_writes);
 void usb_get_store(int *fd, uint32_t *layout);
 void usb_set_store(int fd, uint32_t layout);
 void usb_remove(void);
+/* On every eject, of a drive that is in or already out: the FF.CFG of a
+ * drive made from a directory is looked for again, for showing what the
+ * next insertion would give the firmware. */
+void usb_eject_ff_cfg(void);
 void usb_get_info(struct usb_info *info);
 /* The text of FF.CFG on a drive from an image or a disk, read when it was
  * inserted; NULL for a directory, or if it has none. */
 const char *usb_ff_cfg_text(void);
+/* While the drive is out, usb_get_info() and usb_ff_cfg_text() tell of the
+ * FF.CFG of the last drive. */
 /* Writes the drive as the firmware sees it to file @path; if that fails,
  * says why in @err. */
 bool usb_save(const char *path, char *err, size_t size);
+
+/*
+ * usbdisk.c
+ */
+
+/* Finds the USB drives attached, and prints each to @f, unless NULL,
+ * as a line that ends with its /dev name: the first into @dev, and its line
+ * into @line. Returns their number. */
+int usb_disk_find(char *dev, size_t size, char *line, size_t line_size,
+                  FILE *f);
 
 /*
  * rc.c
@@ -192,6 +217,36 @@ unsigned int ui_rotary_flash(void);
 /* Latch mode, KEY_ACT_latch: a button stays down until its key comes again,
  * or until the mode ends, which releases them all. */
 bool ui_latched(void);
+
+/* What the host computer does on the floppy interface, each a change of its
+ * signals in emu_in_fdd or a STEP pulse; the firmware's target has some of
+ * them only. */
+enum {
+    FDD_ACT_sel,       /* toggles drive select, or Apple2 drive enable */
+    FDD_ACT_motor,     /* Shugart: toggles motor on */
+    FDD_ACT_dir,       /* Shugart: toggles the step direction */
+    FDD_ACT_step,      /* Shugart: sends a STEP pulse */
+    FDD_ACT_side,      /* Shugart: toggles side select */
+    FDD_ACT_phase_in,  /* Apple2: the phases' next state, inward */
+    FDD_ACT_phase_out, /* Apple2: their previous state, outward */
+    FDD_ACT_release,   /* Apple2: all phases off, the state kept */
+    FDD_ACT_nr
+};
+extern const char * const fdd_action_name[FDD_ACT_nr];
+/* Whether the firmware's target has action @act. */
+bool ui_fdd_has(int act);
+/* Performs FDD_ACT_* @act. User interface thread only. */
+void ui_fdd_action(int act);
+/* Whether a STEP pulse was sent a moment ago, to show. */
+bool ui_fdd_stepping(void);
+/* Apple2: the phases of the state kept in their cycle, which they show
+ * unless released, as EMU_FDD_PH0 and up. */
+unsigned int ui_fdd_phases(void);
+/* Phases @phases, as EMU_FDD_PH0 and up, as text such as "01..". */
+const char *ui_fdd_phase_text(unsigned int phases, char buf[5]);
+/* The FDD signals and the kept phase state, for a power cycle, and back. */
+void ui_fdd_save(unsigned int *in, unsigned int *pos);
+void ui_fdd_restore(unsigned int in, unsigned int pos);
 /* A line for the firmware log pane, from the emulator itself, which starts
  * it with HOST_LOG_PREFIX. */
 void host_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));

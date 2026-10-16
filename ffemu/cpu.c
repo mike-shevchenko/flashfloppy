@@ -36,6 +36,11 @@
 volatile unsigned int emu_in_buttons;
 volatile int emu_in_rotary;
 volatile unsigned int emu_out_speaker;
+/* As connected to a computer that has just selected the drive; Shugart
+ * steps go inward. */
+volatile unsigned int emu_in_fdd = EMU_FDD_SEL
+    | (FFEMU_APPLE2 ? 0 : EMU_FDD_DIR);
+volatile unsigned int emu_in_step;
 
 char log_ring[LOG_SIZE];
 volatile unsigned int log_head;
@@ -70,6 +75,12 @@ static void restart(void) __attribute__((noreturn));
 /* Runs every interrupt handler that is pending, enabled and not masked. */
 static void irq_run(void)
 {
+    /* Not from a tick that came in the middle of an update of the models,
+     * which a handler waiting on a peripheral would never see finish: every
+     * update is followed by a run of the handlers anyway. */
+    if (emu_hw_busy())
+        return;
+
     for (;;) {
         unsigned int n, best = NR_IRQS, limit = cur_prio, saved;
         uint32_t bit;
@@ -159,8 +170,9 @@ void emu_irqx_set_pending(unsigned int x)
 {
     __sync_fetch_and_or(&pend[x>>5], 1u << (x&31));
     /* The peripheral models only mark interrupts. Handlers run once the
-     * models are done, since a handler may wait on a peripheral. */
-    if (!emu_hw_busy())
+     * models are done, since a handler may wait on a peripheral, and only on
+     * the firmware's thread. */
+    if (!emu_on_hw_thread() && !emu_hw_busy())
         irq_run();
 }
 
@@ -272,13 +284,33 @@ static void sleep_us(unsigned int us)
     nanosleep(&t, NULL);
 }
 
-/* Gives up the CPU for a moment, as the host allows. */
+static void go_coarse(uint64_t step_ns)
+{
+    coarse_sleep = true;
+    host_log("This host sleeps in steps of %u ms: keeping time by "
+             "spinning, which keeps a CPU core busy",
+             (unsigned int)((step_ns + 500000) / 1000000));
+}
+
+/* Gives up the CPU for a moment, as the host allows. A host whose sleeps are
+ * coarse may pass the measurement at the start by chance, as a virtual
+ * machine does now and then, so sleeps that overshoot many times in a row
+ * mean coarse too. */
 static void pause_briefly(void)
 {
-    if (coarse_sleep)
+    static unsigned int overshoots;
+    uint64_t t;
+
+    if (coarse_sleep) {
         sched_yield();
-    else
-        sleep_us(100);
+        return;
+    }
+    t = emu_time_ns();
+    sleep_us(100);
+    t = emu_time_ns() - t;
+    overshoots = (t > 2000000) ? overshoots + 1 : 0;
+    if (overshoots == 8)
+        go_coarse(t);
 }
 
 void emu_idle_ns(uint64_t ns)
@@ -304,6 +336,33 @@ void emu_relax(void)
     pause_briefly();
 }
 
+/*
+ * The peripherals also run on a thread of their own, as the hardware runs
+ * beside the CPU. A handler that waits on a peripheral, as the display driver
+ * waits for the end of an I2C STOP, is otherwise released only by a nested
+ * tick, which Cygwin defers until the spinning thread calls into it.
+ */
+
+static pthread_t hw_tid;
+static volatile bool hw_started;
+
+int emu_on_hw_thread(void)
+{
+    return hw_started && pthread_equal(pthread_self(), hw_tid);
+}
+
+static void *hw_thread(void *unused)
+{
+    /* It must know itself before it runs a model, which pends interrupts. */
+    while (!hw_started)
+        sleep_us(100);
+    for (;;) {
+        emu_hw_sync_bus();
+        sleep_us(100);
+    }
+    return NULL;
+}
+
 /* Finds out whether the host's sleeps are coarse: the shortest of a few. */
 static void measure_sleep(void)
 {
@@ -318,11 +377,8 @@ static void measure_sleep(void)
             best = t;
     }
 
-    coarse_sleep = (best > 2000000);
-    if (coarse_sleep)
-        host_log("This host sleeps in steps of %u ms: keeping time by "
-                 "spinning, which keeps a CPU core busy",
-                 (unsigned int)((best + 500000) / 1000000));
+    if (best > 2000000)
+        go_coarse(best);
 }
 
 /* The terminal's modes at the first start, carried over power cycles. */
@@ -394,8 +450,8 @@ void emu_log(const char *s)
 }
 
 /* The console also goes to console.log in ${XDG_STATE_HOME:-~/.local/state}
- * /ffemu/, begun anew on every start and power cycle; the previous one
- * becomes console.bak, replacing the one before it. */
+ * /ffemu/ (or /ffemu-apple2/), begun anew on every start and power cycle;
+ * the previous one becomes console.bak, replacing the one before it. */
 static void open_log(void)
 {
     const char *state = getenv("XDG_STATE_HOME"), *home = user_home();
@@ -403,9 +459,9 @@ static void open_log(void)
     char dir[512], bak[600];
 
     if ((state != NULL) && (state[0] != '\0'))
-        snprintf(dir, sizeof(dir), "%s/ffemu", state);
+        snprintf(dir, sizeof(dir), "%s/" FFEMU_NAME, state);
     else if ((home != NULL) && (home[0] != '\0'))
-        snprintf(dir, sizeof(dir), "%s/.local/state/ffemu", home);
+        snprintf(dir, sizeof(dir), "%s/.local/state/" FFEMU_NAME, home);
     else
         return;
     make_dirs(dir);
@@ -536,11 +592,13 @@ void emu_illegal(const char *file, int line)
 }
 
 /* What survives a power cycle travels in the environment of the new process:
- * the configuration flash, and the state of the user interface. */
+ * the configuration flash, and the state of the user interface, including
+ * the signals of the host computer on the floppy interface. */
 static void prepare_restart(void)
 {
-    char hex[2*sizeof(flash_data)+1], state[32];
+    char hex[2*sizeof(flash_data)+1], state[48];
     struct usb_info usb;
+    unsigned int fdd, phase_pos;
     uint32_t layout;
     int fd;
 
@@ -549,8 +607,9 @@ static void prepare_restart(void)
     setenv("FFEMU_USB", state, 1);
 
     usb_get_info(&usb);
-    snprintf(state, sizeof(state), "%d,%d,%u", config.style, usb.inserted,
-             script_sleep_left());
+    ui_fdd_save(&fdd, &phase_pos);
+    snprintf(state, sizeof(state), "%d,%d,%u,%x,%u", config.style,
+             usb.inserted, script_sleep_left(), fdd, phase_pos);
     setenv("FFEMU_STATE", state, 1);
 
     flash_to_hex(hex, sizeof(hex));
@@ -678,6 +737,10 @@ void cpu_start(void)
     it.it_interval.tv_sec = it.it_value.tv_sec = 0;
     it.it_interval.tv_usec = it.it_value.tv_usec = 1000;
     setitimer(ITIMER_REAL, &it, NULL);
+
+    /* Created while the tick is still blocked, which it inherits. */
+    if (pthread_create(&hw_tid, NULL, hw_thread, NULL) == 0)
+        hw_started = true;
 
     block_tick(SIG_UNBLOCK);
 }

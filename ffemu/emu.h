@@ -40,6 +40,9 @@ uint64_t emu_time_ns(void);
 /* Waits @ns, keeping the peripherals and the interrupts running. */
 void emu_idle_ns(uint64_t ns);
 void emu_relax(void);
+/* Whether the caller is the thread that runs the peripheral models beside
+ * the firmware's own. */
+int emu_on_hw_thread(void);
 
 /* Process control (cpu.c). */
 void emu_illegal(const char *file, int line) __attribute__((noreturn));
@@ -58,7 +61,7 @@ void emu_i2c_dev_write(uint8_t b);
 uint8_t emu_i2c_dev_read(void);
 void emu_i2c_dev_stop(void);
 
-/* USB flash drive: 512-byte sectors of a FAT volume (fatimg.c). */
+/* USB drive: 512-byte sectors of a FAT volume (fatimg.c). */
 int emu_usb_inserted(void);
 int emu_usb_read(void *buf, uint32_t sector, unsigned int count);
 int emu_usb_write(const void *buf, uint32_t sector, unsigned int count);
@@ -70,6 +73,18 @@ int emu_usb_write(const void *buf, uint32_t sector, unsigned int count);
 extern volatile unsigned int emu_in_buttons;
 /* Encoder detents not yet delivered: clockwise is positive. */
 extern volatile int emu_in_rotary;
+
+/* Floppy interface inputs from the host computer, written by the user
+ * interface: a bit is set while its signal is active, as on the schematics,
+ * whatever its voltage. */
+#define EMU_FDD_SEL   1  /* Shugart drive select, or Apple2 drive enable */
+#define EMU_FDD_MOTOR 2
+#define EMU_FDD_DIR   4  /* active: steps go inward, to higher tracks */
+#define EMU_FDD_SIDE  8
+#define EMU_FDD_PH0   16 /* Apple2 stepper phases 0 to 3: 16, 32, 64, 128 */
+extern volatile unsigned int emu_in_fdd;
+/* Counts the STEP pulses sent. */
+extern volatile unsigned int emu_in_step;
 
 /* Front-panel outputs, read by the user interface. */
 /* Counts the pulses sent to the speaker. */
@@ -85,12 +100,21 @@ int ff_main(void);
 /* MCU peripherals (hw.c). */
 void emu_hw_init(void);
 void emu_hw_sync(void);
+/* The part of emu_hw_sync() that the bus thread runs: the I2C bus and its
+ * DMA, which interrupt handlers wait on. */
+void emu_hw_sync_bus(void);
+/* Whether the calling thread is in the middle of a sync. */
 int emu_hw_busy(void);
 void emu_irq_vector(unsigned int nr);
 
 /* Facts about the emulated device, for the status pane (hw.c, stubs.c). */
 const char *emu_board_name(void);
 const char *emu_fw_version(void);
+const char *emu_fw_target(void);
+/* The drive as the firmware sees it: the cylinder of the head, the side,
+ * whether it is selected, and the image mounted, or NULL. */
+void emu_fdd_status(unsigned int *cyl, unsigned int *side, int *sel,
+                    const char **image);
 unsigned int emu_arena_used(void);
 unsigned int emu_arena_size(void);
 
