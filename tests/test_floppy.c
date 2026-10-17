@@ -158,7 +158,7 @@ TEST(floppy_apple2_steps)
     CHECK_EQ(nr_speaker_pulses, 12);
 }
 
-#if TARGET == TARGET_multi /* the 307 wiring, the phases shown, Shugart */
+#if TARGET == TARGET_multi /* the 307 wiring */
 
 /* In the 307 wiring, phase 1 is on the SIDE pin. */
 TEST(floppy_apple2_steps_fw307)
@@ -169,6 +169,8 @@ TEST(floppy_apple2_steps_fw307)
     seek(-2);
     CHECK_EQ(track(), 1);
 }
+
+#endif
 
 TEST(floppy_apple2_phases_shown)
 {
@@ -183,6 +185,8 @@ TEST(floppy_apple2_phases_shown)
     seek(4);
     CHECK_EQ(track(), 0);
 }
+
+#if TARGET == TARGET_multi /* the Shugart host */
 
 /* A Shugart host steps by a pulse on STEP, inward while DIR is low. */
 static void shugart_boot(void)
