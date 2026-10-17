@@ -20,8 +20,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <termios.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/utsname.h>
 
 #include "host.h"
 
@@ -104,8 +106,8 @@ static void insert(bool keep_writes)
         return;
     }
     if (info.kind == USB_dir)
-        host_log("USB drive inserted: %u files in %u folders, from %s",
-                 info.nr_files, info.nr_dirs + 1, usb_path);
+        host_log("USB drive inserted: %u files in %u folders, FAT%u, from %s",
+                 info.nr_files, info.nr_dirs + 1, info.fat_bits, usb_path);
     else
         host_log("USB drive inserted: %s %s, from %s",
                  size_text(info.image_bytes, size, sizeof(size)),
@@ -118,6 +120,16 @@ static void insert(bool keep_writes)
         host_log("USB drive: %u entr%s left out as differing from others "
                  "only in letter case, such as %s", info.nr_case_dups,
                  (info.nr_case_dups == 1) ? "y" : "ies", info.case_dup);
+    if (info.nr_root_full != 0)
+        host_log("USB drive: %u entr%s left out, as copying would leave "
+                 "them: the FAT16 root folder holds 512 entries; first %s",
+                 info.nr_root_full, (info.nr_root_full == 1) ? "y" : "ies",
+                 info.root_full);
+    if (info.nr_drive_full != 0)
+        host_log("USB drive: %u file%s left out, as copying would leave "
+                 "them: a FAT16 drive holds 2 GB; first %s",
+                 info.nr_drive_full, (info.nr_drive_full == 1) ? "" : "s",
+                 info.drive_full);
     if (info.nr_kept != 0)
         host_log("USB drive: kept %u sectors that the firmware wrote before "
                  "the power cycle", info.nr_kept);
@@ -208,6 +220,7 @@ void ui_poll(void)
 
 const char * const fdd_action_name[FDD_ACT_nr] = {
     [FDD_ACT_sel] = "sel",
+    [FDD_ACT_write] = "write",
     [FDD_ACT_motor] = "motor",
     [FDD_ACT_dir] = "dir",
     [FDD_ACT_step] = "step",
@@ -222,6 +235,19 @@ static uint64_t step_until;
 /* Apple2: the position of the phases in their cycle of eight states, from
  * phase 0 alone, through phases 0 and 1, to phase 1 alone, and on. */
 static unsigned int phase_pos;
+
+void ui_usb_set_fat16(bool fat16)
+{
+    struct usb_info info;
+
+    if (fat16 == config.usb_fat16)
+        return;
+    config.usb_fat16 = fat16;
+    rc_save();
+    usb_get_info(&info);
+    if (info.inserted && (info.kind == USB_dir))
+        ui_action(KEY_ACT_insert);
+}
 
 const char * const fdd_type_name[FDD_TYPE_nr] = {
     [EMU_FDD_TYPE_step_dir] = "step-dir",
@@ -248,7 +274,7 @@ void ui_fdd_set_type(int type)
 
 bool ui_fdd_has(int act)
 {
-    if (act == FDD_ACT_sel)
+    if ((act == FDD_ACT_sel) || (act == FDD_ACT_write))
         return true;
     return (emu_fdd_type == EMU_FDD_TYPE_apple2)
         ? (act >= FDD_ACT_phase_in) : (act < FDD_ACT_phase_in);
@@ -274,6 +300,9 @@ void ui_fdd_action(int act)
     switch (act) {
     case FDD_ACT_sel:
         emu_in_fdd = in ^ EMU_FDD_SEL;
+        break;
+    case FDD_ACT_write:
+        emu_in_fdd = in ^ EMU_FDD_WRITE;
         break;
     case FDD_ACT_motor:
         emu_in_fdd = in ^ EMU_FDD_MOTOR;
@@ -395,6 +424,11 @@ static void usage(FILE *f)
             "  fdd-type <%s|%s>: the computer on the cable, which restarts "
             "the device\n"
             "  sleep <ms>: let the firmware run\n"
+            "  wait <ms> <log|display|segments> <text>: let it run until "
+            "the console output\n"
+            "    since the last match, the display's text or the LED's "
+            "segments, such as\n"
+            "    \"71 40 71\", show <text>, for at most <ms>; print which\n"
             "  dump: print the display\n"
             "  log: print the firmware's console output so far\n"
             "  status: print the state of the emulated device\n"
@@ -408,6 +442,90 @@ static void usage(FILE *f)
 #endif
             config.path, fdd, fdd_type_name[EMU_FDD_TYPE_step_dir],
             fdd_type_name[EMU_FDD_TYPE_apple2]);
+}
+
+/* Where ffemu runs: the system, or on Windows the runtime's installation,
+ * known by files in its root; and the terminal. */
+static void say_where(void)
+{
+    const char *tty = ttyname(STDIN_FILENO), *program = getenv("TERM_PROGRAM");
+    const char *term = getenv("TERM"), *where;
+    char sys[80], in[96];
+    struct utsname u;
+
+    if (bare_windows())
+        where = "on Windows without MSYS2, Cygwin or Git Bash";
+#ifdef __CYGWIN__
+    else if (access("/cmd/git.exe", F_OK) == 0)
+        where = "in Git Bash";
+    else if (access("/usr/bin/pacman.exe", F_OK) == 0)
+        where = "in MSYS2";
+#endif
+    else {
+        snprintf(sys, sizeof(sys), "on %s",
+                 (uname(&u) == 0) ? u.sysname : "Unix");
+        where = sys;
+    }
+
+    if ((tty != NULL) && !strncmp(tty, "/dev/cons", 9))
+        snprintf(in, sizeof(in), "%s", getenv("WT_SESSION")
+                 ? "Windows Terminal" : "a Windows console window");
+    else if ((program != NULL) && (program[0] != '\0'))
+        snprintf(in, sizeof(in), "the %s terminal", program);
+    else if (getenv("VTE_VERSION") != NULL)
+        snprintf(in, sizeof(in), "GNOME Terminal or another VTE terminal");
+    else
+        snprintf(in, sizeof(in), "a terminal of type %s",
+                 term ? term : "unknown");
+    printf("Running %s, in %s.\n", where, in);
+}
+
+/* Waits for a key pressed from now on, taken without Enter and not echoed;
+ * ends the program if the terminal goes away. */
+static void wait_key(void)
+{
+    struct termios old, raw;
+    bool set = (tcgetattr(STDIN_FILENO, &old) == 0);
+    ssize_t n;
+    char c;
+
+    printf("Press any key to start...");
+    fflush(stdout);
+    if (set) {
+        raw = old;
+        raw.c_lflag &= ~(ICANON | ECHO);
+        raw.c_cc[VMIN] = 1;
+        raw.c_cc[VTIME] = 0;
+        tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+    }
+    /* Keys typed before the question do not answer it. */
+    tcflush(STDIN_FILENO, TCIFLUSH);
+    do
+        n = read(STDIN_FILENO, &c, 1);
+    while ((n < 0) && (errno == EINTR));
+    /* The rest of a key that sends a sequence. */
+    tcflush(STDIN_FILENO, TCIFLUSH);
+    if (set)
+        tcsetattr(STDIN_FILENO, TCSANOW, &old);
+    printf("\n");
+    if (n != 1)
+        exit(0);
+}
+
+/* The first run in a terminal: where ffemu runs and keeps its files, to be
+ * read before the user interface takes the screen. */
+static void first_run_note(void)
+{
+    char buf[1024];
+
+    say_where();
+    printf("The ffemu config file created: %s\n",
+           user_path(config.path, buf, sizeof(buf)));
+    printf("The log will appear here: %s\n",
+           user_path(log_file_name, buf, sizeof(buf)));
+    printf("Temporary files go here: %s\n",
+           user_path(usb_store_dir(), buf, sizeof(buf)));
+    wait_key();
 }
 
 int main(int argc, char **argv)
@@ -425,6 +543,17 @@ int main(int argc, char **argv)
 
     cpu_init(argv);
     rc_load();
+    if (config.created && (log_file_name == NULL)) {
+        char buf[1024];
+        if (log_file_tried != NULL)
+            fprintf(stderr, "ffemu: cannot create the log file %s: %s\n",
+                    user_path(log_file_tried, buf, sizeof(buf)),
+                    strerror(log_file_errno));
+        else
+            fprintf(stderr, "ffemu: no folder for the log file: neither "
+                    "XDG_STATE_HOME nor HOME is set\n");
+        return 1;
+    }
     ui_fdd_set_type(config.fdd_type);
 
     if ((argc > 2) || ((argc == 2) && (argv[1][0] == '-'))) {
@@ -511,10 +640,13 @@ int main(int argc, char **argv)
     if (usb)
         insert(state != NULL);
 
-    if (isatty(STDIN_FILENO) && isatty(STDOUT_FILENO))
+    if (isatty(STDIN_FILENO) && isatty(STDOUT_FILENO)) {
+        if (config.created)
+            first_run_note();
         tui_start();
-    else
+    } else {
         script_start(sleep_ms);
+    }
 
     cpu_start();
     ff_main();
