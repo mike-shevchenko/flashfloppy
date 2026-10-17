@@ -52,6 +52,10 @@ static char **saved_argv;
 static const char *restart_state;
 static struct timespec t0;
 
+/* How many times as fast as the host's the emulated clock runs: 1, or as
+ * FFEMU_TIME_SCALE sets it. */
+static unsigned int time_scale = 1;
+
 enum { REQ_none, REQ_restart, REQ_quit };
 static volatile int request;
 
@@ -265,12 +269,18 @@ static void cancel_deferred(void)
  * Time.
  */
 
-uint64_t emu_time_ns(void)
+/* The host's time since the start. */
+static uint64_t host_ns(void)
 {
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC, &t);
     return (uint64_t)(t.tv_sec - t0.tv_sec) * 1000000000u
         + t.tv_nsec - t0.tv_nsec;
+}
+
+uint64_t emu_time_ns(void)
+{
+    return host_ns() * time_scale;
 }
 
 /* Set where the host sleeps in steps of milliseconds, as a virtual machine on
@@ -306,9 +316,9 @@ static void pause_briefly(void)
         sched_yield();
         return;
     }
-    t = emu_time_ns();
+    t = host_ns();
     sleep_us(100);
-    t = emu_time_ns() - t;
+    t = host_ns() - t;
     overshoots = (t > 2000000) ? overshoots + 1 : 0;
     if (overshoots == 8)
         go_coarse(t);
@@ -325,7 +335,7 @@ void emu_idle_ns(uint64_t ns)
         if (now >= end)
             break;
         /* Spin for the last bit, where even a short sleep would overshoot. */
-        if (coarse_sleep || ((end - now) > 300000))
+        if (coarse_sleep || ((end - now) > 300000ull * time_scale))
             pause_briefly();
     }
 }
@@ -371,9 +381,9 @@ static void measure_sleep(void)
     unsigned int i;
 
     for (i = 0; i < 5; i++) {
-        t = emu_time_ns();
+        t = host_ns();
         sleep_us(100);
-        t = emu_time_ns() - t;
+        t = host_ns() - t;
         if (t < best)
             best = t;
     }
@@ -732,9 +742,12 @@ const char *cpu_restart_state(void)
 void cpu_init(char **argv)
 {
     const char *hex = getenv("FFEMU_FLASH"), *tty = getenv("FFEMU_TTY");
+    const char *scale = getenv("FFEMU_TIME_SCALE");
 
     saved_argv = argv;
     clock_gettime(CLOCK_MONOTONIC, &t0);
+    if ((scale != NULL) && (atoi(scale) > 1))
+        time_scale = atoi(scale);
     open_log();
 
     if (getenv("FFEMU_STATE") != NULL) {

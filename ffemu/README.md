@@ -244,6 +244,10 @@ sleeps only in coarser steps, as a virtual machine on a Windows host may (4 to
 16 ms), ffemu keeps time by spinning, which keeps one CPU core busy, and says
 so in the console window.
 
+For scripts, the environment variable `FFEMU_TIME_SCALE=<n>` runs the emulated
+clock `<n>` times as fast as the host's, with every time of ffemu's own, those
+of a script's `sleep` and `wait` included.
+
 The firmware's console output (normally available in debug builds on the
 Gotek's UART pins) is shown in the Console pane at the bottom, among ffemu's
 own lines, which start with `ffemu:`, and also written to
