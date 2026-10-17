@@ -109,7 +109,7 @@ DEFINE_IRQ(dma_rdata_irq, "IRQ_rdata_dma");
 static struct timer step_timer;
 static void POLL_step(void *unused);
 #endif
-#if TARGET == TARGET_multi
+#if TARGET_SUPPORTS_APPLE2
 uint8_t apple2_phases;
 /* The phases on, for the display. */
 #define show_phases(pha) (apple2_phases = (pha))

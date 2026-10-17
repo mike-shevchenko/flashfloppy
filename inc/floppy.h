@@ -45,7 +45,7 @@ void apple2_detect(unsigned int ms);
 #endif
 
 /* The stepper phases on in Apple2 mode, debounced, as bits 0 to 3. */
-#if TARGET == TARGET_multi
+#if TARGET_SUPPORTS_APPLE2
 extern uint8_t apple2_phases;
 #else
 #define apple2_phases 0
