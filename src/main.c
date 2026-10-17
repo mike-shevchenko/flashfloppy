@@ -292,9 +292,9 @@ static void lcd_write_track_info(bool_t force)
     if (force || (ti.cyl != lcd_ti.cyl)
         || ((ti.side != lcd_ti.side) && ti.sel)
         || (ti.writing != lcd_ti.writing)
-        || ((TARGET == TARGET_multi) && (ti.phases != lcd_ti.phases))) {
+        || (TARGET_SUPPORTS_APPLE2 && (ti.phases != lcd_ti.phases))) {
         char wp = (cfg.slot.attributes & AM_RDO) ? '*' : ti.writing ? 'W' : ' ';
-        if (apple2_detected) {
+        if (apple2_mode) {
             /* The phase spinner, two cells, then the phases on as "0..3"
              * with dots for those off, then the track after T, or after W
              * while writing and * when write protected. An LCD, which has
@@ -330,7 +330,7 @@ static void led_7seg_update_track(bool_t force)
 
     bool_t changed;
     struct track_info ti;
-    char msg[(TARGET == TARGET_multi) ? 6 : 4];
+    char msg[TARGET_SUPPORTS_APPLE2 ? 6 : 4];
 
     if (display_type != DT_LED_7SEG)
         return;
@@ -338,7 +338,7 @@ static void led_7seg_update_track(bool_t force)
     floppy_get_track(&ti);
     changed = (ti.cyl != led_ti.cyl) || ((ti.side != led_ti.side) && ti.sel)
         || (ti.writing != led_ti.writing)
-        || ((TARGET == TARGET_multi) && (ti.phases != led_ti.phases));
+        || (TARGET_SUPPORTS_APPLE2 && (ti.phases != led_ti.phases));
 
     if (force) {
         /* First call afer mounting new image: forcibly show track nr. */
@@ -375,7 +375,7 @@ static void led_7seg_update_track(bool_t force)
 
     if (!showing_track || changed) {
         const static char status[] = { 'k', 'm', 'v', 'w' };
-        if (apple2_detected && (led_7seg_nr_digits() == 3)) {
+        if (apple2_mode && (led_7seg_nr_digits() == 3)) {
             /* The stepper phases on as the four segments of the lower half
              * of the first digit, phases 0 to 3 clockwise round its loop: d,
              * e, g and c, so that a seek turns an arc, and its top segment,
