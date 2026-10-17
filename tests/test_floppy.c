@@ -29,12 +29,15 @@ static void set_phases(unsigned int pha, bool_t fw307)
     pin_set(PA, 1, pha & 8);
 }
 
+/* The head's track: the apple2 target gives the cylinder in half tracks. */
 static unsigned int track(void)
 {
     struct track_info ti;
     floppy_get_track(&ti);
-    return ti.cyl;
+    return (TARGET == TARGET_apple2) ? ti.cyl / 2 : ti.cyl;
 }
+
+#if TARGET == TARGET_multi /* detection at boot */
 
 TEST(floppy_detect_apple2_at_rest)
 {
@@ -68,9 +71,13 @@ TEST(floppy_detect_shugart)
     CHECK(log_has("Apple2 off"));
 }
 
+#endif
+
 /* A host seeking during the window: the eight states of a seek, a
  * millisecond each, at most two phases on. */
 static const uint8_t seek_states[8] = { 1, 3, 2, 6, 4, 12, 8, 9 };
+
+#if TARGET == TARGET_multi /* detection at boot */
 
 static void seeking(time_t now)
 {
@@ -97,6 +104,8 @@ TEST(floppy_detect_apple2_fw307)
     CHECK(log_has("Apple2 on (fw307)"));
 }
 
+#endif
+
 /* An Apple2 host steps the head a half track at a time by turning on the
  * phase next to the current one, as DOS 3.3 does, through the pairs of
  * phases between them. */
@@ -120,7 +129,9 @@ static void apple2_boot(bool_t fw307)
     board_reset();
     wiring_fw307 = fw307;
     set_phases(0, fw307);
+#if TARGET == TARGET_multi
     apple2_detect(200);
+#endif
     REQUIRE(apple2_mode);
     floppy_init();
     floppy_set_cyl(0, 0);
@@ -146,6 +157,8 @@ TEST(floppy_apple2_steps)
     CHECK_EQ(track(), 0);
     CHECK_EQ(nr_speaker_pulses, 12);
 }
+
+#if TARGET == TARGET_multi /* the 307 wiring, the phases shown, Shugart */
 
 /* In the 307 wiring, phase 1 is on the SIDE pin. */
 TEST(floppy_apple2_steps_fw307)
@@ -212,6 +225,8 @@ TEST(floppy_shugart_steps)
     steps(1, TRUE);
     CHECK_EQ(track(), ff_cfg.max_cyl);
 }
+
+#endif
 
 /*
  * Local variables:
