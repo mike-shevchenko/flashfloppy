@@ -52,6 +52,8 @@ TEST(flux_nib)
     check_flux(34 << 2, FALSE);
 }
 
+#if TARGET == TARGET_multi /* Shugart images */
+
 /* IBM PC 720K: 2us cells of MFM made of the sectors. */
 TEST(flux_img)
 {
@@ -93,6 +95,8 @@ TEST(flux_hfe)
     REQUIRE(image_mount("MFM.HFE") == FR_OK);
     check_flux(0, TRUE);
 }
+
+#endif
 
 /*
  * Local variables:

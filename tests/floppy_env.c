@@ -187,7 +187,9 @@ void irqs_run(void)
         case 13: IRQ_13(); break;
         case 23: IRQ_23(); break;
         case 27: IRQ_27(); break;
-        case 28: IRQ_28(); break;
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
+        case 28: IRQ_28(); break; /* TIM2: STEP, in Step/Dir mode */
+#endif
         case 40: IRQ_40(); break;
         case 43: IRQ_43(); break;
         default:
@@ -331,7 +333,9 @@ void floppy_boot(bool_t apple2)
         pin_set(PB, 0, FALSE);
         pin_set(PA, 1, FALSE);
     }
+#if TARGET == TARGET_multi
     apple2_detect(200);
+#endif
     if (apple2_mode != apple2)
         ft_abort(__FILE__, __LINE__, "Apple2 mode %s",
                  apple2_mode ? "on" : "off");
