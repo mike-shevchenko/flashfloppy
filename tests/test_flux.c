@@ -44,7 +44,7 @@ static void check_flux(unsigned int track, bool_t lsb_first)
 TEST(flux_nib)
 {
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     fill(file, 35*6656);
     drive_add("A.NIB", file, 35*6656);
     REQUIRE(image_mount("A.NIB") == FR_OK);
