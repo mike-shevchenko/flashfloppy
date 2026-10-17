@@ -1,10 +1,12 @@
 # Unit tests: firmware sources compiled for a PC, as ffemu compiles them,
 # driven against a USB drive in RAM.
 #
-# Usage: make -C tests [O=<path>] [run | all | clean]
+# Usage: make -C tests [O=<path>] [TARGET=multi|apple2] [run | all | clean]
 #
-# The default, run, builds $(O)/out/fftest/fftest and runs it; it takes
-# names of tests to run, as in "make -C tests run T=img_pc". all builds it
+# The default, run, builds $(O)/out/fftest/fftest, the tests of the multi
+# firmware, or for TARGET=apple2 $(O)/out/fftest-apple2/fftest-apple2, those
+# of the apple2 firmware that apply to it, and runs it; it takes names of
+# tests to run, as in "make -C tests run T=img_pc". all builds it
 # and runs it only when it has changed since the tests last passed, so that a
 # build that leaves it alone costs nothing and a failing test stops the
 # build. EXTRA_CFLAGS goes to every compile and to the link, as in
@@ -15,8 +17,17 @@ ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))..)
 TESTS := $(ROOT)/tests
 EMU := $(ROOT)/ffemu
 
+TARGET ?= multi
+ifeq ($(TARGET),multi)
+NAME := fftest
+else ifeq ($(TARGET),apple2)
+NAME := fftest-apple2
+else
+$(error TARGET must be multi or apple2)
+endif
+
 O ?= $(ROOT)
-OUT := $(abspath $(O))/out/fftest
+OUT := $(abspath $(O))/out/$(NAME)
 
 CC ?= cc
 PYTHON ?= $(firstword $(shell command -v python3 python py 2>/dev/null))
@@ -33,7 +44,10 @@ FW_SRCS += image/image.c image/adf.c image/dsk.c image/hfe.c image/img.c
 FW_SRCS += image/da.c image/dummy.c image/mfm.c image/apple2.c
 FW_SRCS += floppy.c
 TEST_SRCS := harness.c floppy_env.c
-TEST_SRCS += test_apple2.c test_floppy.c test_flux.c test_img.c test_util.c
+TEST_SRCS += test_apple2.c test_floppy.c test_flux.c
+ifeq ($(TARGET),multi)
+TEST_SRCS += test_img.c test_util.c
+endif
 
 # The host half: the runner.
 HOST_SRCS := ft_main.c
@@ -50,25 +64,26 @@ FW_CFLAGS += -Wall -Werror -Wno-format -Wno-unused-value
 FW_CFLAGS += -iquote $(ROOT)/inc -iquote $(EMU) -iquote $(TESTS)
 FW_CFLAGS += -iquote $(OUT)
 FW_CFLAGS += -include $(EMU)/decls.h
-# The multi target, which has the shugart target's image handlers, the
-# Apple2 ones and the detection of the host.
-FW_CFLAGS += -DMCU=MCU_stm32f105 -DTARGET=TARGET_multi -DLEVEL=LEVEL_debug
+# The multi target has the shugart target's image handlers, the Apple2 ones
+# and the detection of the host; the apple2 target the Apple2 mode alone.
+FW_CFLAGS += -DMCU=MCU_stm32f105 -DTARGET=TARGET_$(TARGET) -DLEVEL=LEVEL_debug
 FW_CFLAGS += -MMD -MP $(EXTRA_CFLAGS)
 
 HOST_CFLAGS := -std=gnu11 -O1 -g -Wall -Werror -MMD -MP $(EXTRA_CFLAGS)
+HOST_CFLAGS += -DFT_NAME='"$(NAME)"'
 
 .PHONY: all run clean
 
-run: $(OUT)/fftest
-	$(OUT)/fftest $(T)
+run: $(OUT)/$(NAME)
+	$(OUT)/$(NAME) $(T)
 
 all: $(OUT)/passed
 
-$(OUT)/passed: $(OUT)/fftest
-	$(Q)$(OUT)/fftest
+$(OUT)/passed: $(OUT)/$(NAME)
+	$(Q)$(OUT)/$(NAME)
 	@touch $@
 
-$(OUT)/fftest: $(FW_OBJS) $(HOST_OBJS)
+$(OUT)/$(NAME): $(FW_OBJS) $(HOST_OBJS)
 	@echo LD $(notdir $@)
 	$(Q)$(CC) -g $(EXTRA_CFLAGS) -o $@ $^
 
