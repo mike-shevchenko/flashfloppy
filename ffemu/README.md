@@ -355,6 +355,14 @@ them or a row of the LCD; `segments` for the LED's segments, such as
 printing nothing, so a reset to come, such as the one after reading a new
 `FF.CFG`, is slept through.
 
+The integration tests in `tests/itests/` drive the ffemu programs by these
+commands, from Python 3 and its standard library alone. `make itests` builds
+the programs and runs every test. To run some of them, run
+`python3 -m unittest -v` in `tests/itests/` with the names of modules, classes
+or tests, such as `test_version` or `test_flash.Flash.test_unknown_interface`,
+and `FFEMU_OUT=<dir>/out` for programs built with `O=<dir>`. They run the
+programs with `FFEMU_TIME_SCALE=10` unless it is set.
+
 ## How it works
 
 - `decls.h`, `regs.h`, `hooks.h`: the host counterparts of `inc/decls.h` and
