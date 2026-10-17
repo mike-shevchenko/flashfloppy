@@ -552,6 +552,8 @@ TEST(apple2_write_flux)
     CHECK_MEM(got, disk, 35*DSK_TRK);
 }
 
+#if TARGET == TARGET_multi /* the multi target's image checks */
+
 /* Which files Apple2 mode lists, by size alone. */
 TEST(apple2_listed_sizes)
 {
@@ -598,6 +600,8 @@ TEST(apple2_listed_sizes)
     image_log_hidden();
     CHECK(log_has("image(s) hidden by size"));
 }
+
+#endif
 
 /*
  * HFE: an image whose header names an encoding that does not suit the mode
@@ -646,6 +650,8 @@ static uint32_t make_hfe(uint8_t *hfe, uint8_t encoding, bool_t gcr)
     return 1024 + ((len + 255) / 256) * 512;
 }
 
+#if TARGET == TARGET_multi /* the multi target's image checks */
+
 TEST(apple2_hfe_encodings)
 {
     static const uint8_t encodings[5] = { 0x00, 0x02, 0x06, 0x07, 0xff };
@@ -691,6 +697,8 @@ TEST(apple2_hfe_encodings)
     REQUIRE(image_mount("MFM.HFE") == FR_OK);
     CHECK(log_has("HFE: looks non-GCR"));
 }
+
+#endif
 
 /*
  * Positions: the floppy code starts a track where the disk has turned to,
