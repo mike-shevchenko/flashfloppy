@@ -257,7 +257,7 @@ static unsigned int osd_prep_buffer(void)
     for (row = 0; row < rows; row++) {
         p = text[(order >> (row * DORD_shift)) & DORD_row];
         memcpy(q, p, lcd_columns);
-#if TARGET == TARGET_multi
+#if TARGET_SUPPORTS_APPLE2
         /* The OLED's phase spinner goes as a blank: FF OSD has no glyph
          * for it. */
         for (i = 0; i < lcd_columns; i++, q++)
@@ -693,7 +693,7 @@ static void oled_convert_text_row_6x13(char *pc)
     q++;
 
     for (i = 0; i < lcd_columns; i++) {
-        if ((TARGET == TARGET_multi) && ((uint8_t)*pc >= 0x80)) {
+        if (TARGET_SUPPORTS_APPLE2 && ((uint8_t)*pc >= 0x80)) {
             oled_spinner(q, w, *pc & 0xf, oled_spinner_11, 11);
             pc += 2;
             q += 2*w;
@@ -723,7 +723,7 @@ static void oled_convert_text_row_8x16(char *pc)
     const unsigned int w = 8;
 
     for (i = 0; i < lcd_columns; i++) {
-        if ((TARGET == TARGET_multi) && ((uint8_t)*pc >= 0x80)) {
+        if (TARGET_SUPPORTS_APPLE2 && ((uint8_t)*pc >= 0x80)) {
             oled_spinner(q, w, *pc & 0xf, oled_spinner_14, 14);
             pc += 2;
             q += 2*w;
