@@ -70,16 +70,14 @@ A simple cable for one drive can be made from a 14 to 34 wire ribbon cable (some
 
 For connecting multiple drives, see the details on the upstream wiki page [Apple II](https://github.com/keirf/flashfloppy/wiki/Apple-II).
 
-Controller side, view to the pins at the Controller:
 ```
+Controller side, view to the pins at the Controller:
 -----------------------------------------  
 |PH0 PH1 PH2 PH3 WRQ  .  DE  RD  WR  WRP|  
 |GND GND GND GND  .  +5   .   .   .   . |  
 --------^----------___--------------^----
-```
 
 Gotek side, view to the pins at Gotek:
-```
 -----------------       ---------------------------------------------------------------------
 | .   .   .  +5 |       | .  PH0  .   .  DE   .   .  PH1 PH2 PH3 WR  WRQ  .  WRP RD   .   . |
 =======---=======       | .   .   .  GND GND GND GND  .   .   .   .   .   .   .   .   .   . |
@@ -92,17 +90,15 @@ A simple cable for one drive can be made from a 12 to 34 wire ribbon cable with 
 
 Alternative - if you have an original Agat FDD cable, you can match it with an FDC-30 (ribbon cable connector for PCB soldering) by pushing FDC's tail pins into the female connector on the cable, and crimping both sides of the ribbon cable. The edge pairs of FDC's tail pins can be soldered short to prevent misalignment when mating.
 
-Controller side, view to the tail pins of the connector on the cable:
 ```
+Controller side, view to the tail pins of the connector on the cable:
  _-------------------------------------_  
 |GND  .   .  PH0 PH1 PH2 PH3 +5   .   . |
 | .   .   .   .   .   .   .   .   .   . |
 |RD  WPR  .  WRQ  .   .   .  DE  WR  GND|
 -----------------------------------------
-```
 
 Gotek side, view to the pins at Gotek:
-```
 -----------------       ---------------------------------------------------------------------
 | .   .   .  +5 |       | .  PH0  .   .  DE   .   .  PH1 PH2 PH3 WR  WRQ  .  WRP RD   .   . |
 =======---=======       | .   .   .  GND GND  .   .   .   .   .   .   .   .   .   .   .   . |
