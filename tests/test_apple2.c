@@ -552,8 +552,6 @@ TEST(apple2_write_flux)
     CHECK_MEM(got, disk, 35*DSK_TRK);
 }
 
-#if TARGET == TARGET_multi /* the multi target's image checks */
-
 /* Which files Apple2 mode lists, by size alone. */
 TEST(apple2_listed_sizes)
 {
@@ -600,8 +598,6 @@ TEST(apple2_listed_sizes)
     image_log_hidden();
     CHECK(log_has("image(s) hidden by size"));
 }
-
-#endif
 
 /*
  * HFE: an image whose header names an encoding that does not suit the mode

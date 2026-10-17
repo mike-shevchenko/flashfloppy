@@ -289,7 +289,7 @@ bool_t image_valid(FILINFO *fp);
 /* Counts the files it refused by size in Apple2 mode; logged and cleared
  * at the end of a folder scan. */
 extern unsigned int image_nr_hidden;
-#if TARGET == TARGET_multi
+#if TARGET_SUPPORTS_APPLE2
 void image_log_hidden(void);
 #else
 #define image_log_hidden() ((void)0)

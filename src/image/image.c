@@ -121,7 +121,7 @@ const struct image_type image_type[] = {
 
 unsigned int image_nr_hidden;
 
-#if TARGET == TARGET_multi
+#if TARGET_SUPPORTS_APPLE2
 void image_log_hidden(void)
 {
     if (image_nr_hidden != 0)
