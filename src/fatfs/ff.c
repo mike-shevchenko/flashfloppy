@@ -2955,16 +2955,17 @@ static FRESULT create_name (	/* FR_OK: successful, FR_INVALID_NAME: could not cr
 
 		if (wc >= 0x80) {	/* Is this a non-ASCII character? */
 			cf |= NS_LFN;	/* LFN entry needs to be created */
+			/* FlashFloppy: An SBCS extended character is kept as it is, not
+			 * upper-cased, so that a short name read from the drive, which
+			 * may be in another code page than ours, matches its entry. */
 #if FF_CODE_PAGE == 0
 			if (ExCvt) {	/* At SBCS */
 				wc = ff_uni2oem(wc, CODEPAGE);			/* Unicode ==> ANSI/OEM code */
-				if (wc & 0x80) wc = ExCvt[wc & 0x7F];	/* Convert extended character to upper (SBCS) */
 			} else {		/* At DBCS */
 				wc = ff_uni2oem(ff_wtoupper(wc), CODEPAGE);	/* Unicode ==> Upper convert ==> ANSI/OEM code */
 			}
 #elif FF_CODE_PAGE < 900	/* SBCS cfg */
 			wc = ff_uni2oem(wc, CODEPAGE);			/* Unicode ==> ANSI/OEM code */
-			if (wc & 0x80) wc = ExCvt[wc & 0x7F];	/* Convert extended character to upper (SBCS) */
 #else						/* DBCS cfg */
 			wc = ff_uni2oem(ff_wtoupper(wc), CODEPAGE);	/* Unicode ==> Upper convert ==> ANSI/OEM code */
 #endif
