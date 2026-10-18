@@ -183,6 +183,40 @@ void hd44780_pixels(const struct lcd_view *v, const uint8_t **px,
                     const uint8_t **dots, unsigned int *w, unsigned int *h);
 
 /*
+ * osd.c
+ */
+
+#define OSD_MAX_COLS 40
+#define OSD_MAX_ROWS 4
+/* FF OSD's frame: eight pixels a character across, at most 56 lines, as it
+ * takes three rows at most, each of up to 16 lines and two blank ones, after
+ * two blank lines. */
+#define OSD_W (OSD_MAX_COLS * 8)
+#define OSD_MAX_H 56
+
+struct osd_view {
+    bool present;            /* FF OSD is on the bus */
+    bool on;                 /* the firmware's backlight */
+    unsigned int cols, rows; /* of the frames that the firmware sends */
+    unsigned int heights;    /* bit n: row n is of double height */
+    unsigned int nr_updates; /* counts the frames written */
+    uint8_t text[OSD_MAX_ROWS][OSD_MAX_COLS];
+};
+
+/* Puts FF OSD on the bus if @fit. */
+void osd_init(bool fit);
+void osd_get_view(struct osd_view *view);
+int osd_i2c_start(unsigned int addr, int rd);
+void osd_i2c_write(uint8_t b);
+uint8_t osd_i2c_read(void);
+void osd_i2c_stop(void);
+/* The lines of the frame that FF OSD shows for @v. */
+unsigned int osd_height(const struct osd_view *v);
+/* FF OSD's frame of @v as pixels into @px, @w by @h bytes, 1 for lit. */
+void osd_pixels(const struct osd_view *v, uint8_t *px, unsigned int w,
+                unsigned int h);
+
+/*
  * led_7seg.c
  */
 
@@ -231,6 +265,10 @@ struct usb_info {
     uint8_t kind; /* USB_* */
     unsigned int nr_files, nr_dirs, nr_skipped;
     unsigned int nr_case_dups; /* left out: as names they equal others */
+    unsigned int fat_bits;     /* of a drive made from a directory */
+    /* Left out of FAT16, as copying them would leave them: entries of the
+     * full root folder, and files of the full drive. */
+    unsigned int nr_root_full, nr_drive_full;
     unsigned long nr_reads, nr_writes; /* transfers since insertion */
     unsigned int nr_kept;  /* sectors written before the power cycle, kept */
     bool writes_lost;      /* such sectors were dropped: the files changed */
@@ -238,6 +276,7 @@ struct usb_info {
     char ff_cfg[16];  /* the FF.CFG that the firmware reads, as on the drive */
     unsigned int ff_cfg_gen; /* changes whenever FF.CFG is to be read again */
     char case_dup[160]; /* the first of those left out, as a path */
+    char root_full[160], drive_full[160]; /* likewise */
     char error[160];  /* why the last usb_insert() failed, or "" */
 };
 
@@ -352,6 +391,13 @@ enum {
     KEY_ACT_nr
 };
 
+/* The MCUs whose display driver the firmware may run, EMU_MCU_*, by their
+ * names in the settings file and on the screen, with a line of help. */
+#define MCU_nr 2
+extern const char * const mcu_name[MCU_nr];
+extern const char * const mcu_label[MCU_nr];
+extern const char * const mcu_help[MCU_nr];
+
 /* The names of the FDD types, EMU_FDD_TYPE_*, in the settings file and on
  * the screen. */
 #define FDD_TYPE_nr 2
@@ -363,6 +409,10 @@ struct config {
     int display;            /* DISP_*: the display fitted */
     int lcd_rom;            /* LCD_ROM_*: the LCD's character ROM */
     bool oled_synth;        /* the OLED's 8x16 font made from the 6x13 one */
+    int mcu;                /* EMU_MCU_*: whose display driver runs */
+    bool osd;               /* FF OSD on the bus beside an OLED or LCD */
+    bool osd_braille;       /* the OSD pane draws FF OSD's pixels */
+    bool usb_fat16;         /* a USB drive made from a directory is FAT16 */
     int fdd_type;           /* EMU_FDD_TYPE_*: the computer on the cable */
     int display_color;      /* a curses color, plus 8 if bright */
     unsigned int hold_ms;   /* how long a key press holds a button down */
@@ -446,6 +496,10 @@ enum {
     FDD_ACT_nr
 };
 extern const char * const fdd_action_name[FDD_ACT_nr];
+/* Makes a USB drive made from a directory FAT16 if @fat16, else FAT32, in
+ * the settings, and inserts such a drive again if one is in. */
+void ui_usb_set_fat16(bool fat16);
+/* Whether the firmware's target has action @act. */
 /* Makes the computer on the cable one of FDD type @type, EMU_FDD_TYPE_*, with
  * its signals as at power-on; the shugart firmware takes Step/Dir only, and
  * the apple2 firmware Apple2 only. */

@@ -264,14 +264,16 @@ static void print_fdd(void)
     int apple2, sel;
 
     if (emu_fdd_type == EMU_FDD_TYPE_apple2)
-        printf("fdd: apple2, %s, phases %s, kept %s\n",
+        printf("fdd: apple2, %s %s, phases %s, kept %s\n",
                (in & EMU_FDD_SEL) ? "D_E" : "d_e",
+               (in & EMU_FDD_WRITE) ? "WRQ" : "wrq",
                ui_fdd_phase_text(in, ph),
                ui_fdd_phase_text(ui_fdd_phases(), kept));
     else
-        printf("fdd: step-dir, %s %s %s %s\n",
+        printf("fdd: step-dir, %s %s %s %s %s\n",
                (in & EMU_FDD_SEL) ? "D_S" : "d_s",
                (in & EMU_FDD_MOTOR) ? "M_O" : "m_o",
+               (in & EMU_FDD_WRITE) ? "WRG" : "wrg",
                (in & EMU_FDD_DIR) ? "DIR" : "dir",
                (in & EMU_FDD_SIDE) ? "SID" : "sid");
     emu_fdd_status(&apple2, &cyl, &side, &sel, &image);
@@ -281,6 +283,32 @@ static void print_fdd(void)
     else
         printf("drive: step-dir, cyl %u, side %u, %sselected, floppy %s\n",
                cyl, side, sel ? "" : "not ", image ? image : "none");
+}
+
+/* FF OSD as text: its rows between bars, each code as FF OSD draws it,
+ * 0x7F as the checkerboard that its glyph is, in UTF-8. */
+static void dump_osd(void)
+{
+    struct osd_view v;
+    unsigned int x, y, n;
+    char row[OSD_MAX_COLS * 3 + 1];
+
+    osd_get_view(&v);
+    if (!v.present) {
+        printf("osd: none\n");
+        return;
+    }
+    printf("osd: %ux%u %s heights=%x updates=%u\n", v.cols, v.rows,
+           v.on ? "on" : "off", v.heights, v.nr_updates);
+    for (y = 0; y < v.rows; y++) {
+        for (x = n = 0; x < v.cols; x++) {
+            uint8_t c = v.text[y][x];
+            n += utf8(row + n, !v.on ? ' ' : (c == 0x7f) ? 0x2592
+                      : ((c < 0x20) || (c > 0x7f)) ? ' ' : c);
+        }
+        row[n] = '\0';
+        printf("|%s|\n", row);
+    }
 }
 
 static void print_status(void)
@@ -317,6 +345,8 @@ static void print_status(void)
         printf("display: %s 128x%u, driven 128x%u\n", v.chip, v.height,
                v.driven);
     }
+    printf("osd: %s\n", config.osd && !DISP_IS_LED(config.display)
+           ? "FF OSD 1.9 at 0x10" : "none");
     flash_summary(flash, sizeof(flash));
     printf("flash: %s\n", flash);
 
@@ -324,11 +354,12 @@ static void print_status(void)
     printf("firmware: %s, %s, on %s\n", emu_fw_version(), emu_fw_target(),
            emu_board_name());
     if (usb.inserted && (usb.kind == USB_dir))
-        printf("usb: inserted, %u files, %u dirs, %u left out, "
-               "%u case duplicates left out, %lu reads, %lu writes, "
-               "ff.cfg: %s\n", usb.nr_files, usb.nr_dirs, usb.nr_skipped,
-               usb.nr_case_dups, usb.nr_reads, usb.nr_writes,
-               usb.ff_cfg[0] ? usb.ff_cfg : "none");
+        printf("usb: inserted, FAT%u, %u files, %u dirs, %u left out, "
+               "%u case duplicates left out, %u left out for lack of room, "
+               "%lu reads, %lu writes, ff.cfg: %s\n", usb.fat_bits,
+               usb.nr_files, usb.nr_dirs, usb.nr_skipped, usb.nr_case_dups,
+               usb.nr_root_full + usb.nr_drive_full, usb.nr_reads,
+               usb.nr_writes, usb.ff_cfg[0] ? usb.ff_cfg : "none");
     else if (usb.inserted)
         printf("usb: inserted, %s of %llu sectors, %lu reads, %lu writes, "
                "ff.cfg: %s\n", (usb.kind == USB_image) ? "image" : "disk",
@@ -402,6 +433,12 @@ static void *script_thread(void *arg_sleep_ms)
             if ((i == KEY_ACT_reset) || (i == KEY_ACT_relaunch)
                 || (i == KEY_ACT_quit))
                 park();
+        } else if (sscanf(line, "usb-fat %63s", arg) == 1) {
+            if (strcmp(arg, "fat32") && strcmp(arg, "fat16")) {
+                fprintf(stderr, "ffemu: no such file system: %s\n", arg);
+                continue;
+            }
+            ui_usb_set_fat16(!strcmp(arg, "fat16"));
         } else if (sscanf(line, "fdd-type %63s", arg) == 1) {
             for (i = 0; i < FDD_TYPE_nr; i++)
                 if (!strcmp(arg, fdd_type_name[i]))
@@ -422,6 +459,8 @@ static void *script_thread(void *arg_sleep_ms)
             park();
         } else if (!strcmp(line, "dump")) {
             dump_display();
+        } else if (!strcmp(line, "osd")) {
+            dump_osd();
         } else if (!strcmp(line, "log")) {
             print_log();
         } else if (!strcmp(line, "status")) {

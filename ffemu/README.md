@@ -23,30 +23,54 @@ The plain `make` at the top of the tree builds the three programs as well,
 along with the firmware and with the same `O=`, so that a firmware change that
 breaks ffemu fails the regular build.
 
-The program is `out/ffemu/ffemu` under `<path>`, which defaults to the top of
-the source tree. It runs the shugart firmware, which serves a Shugart host.
-`TARGET=apple2` builds `out/ffemu-apple2/ffemu-apple2` instead, which runs the
-apple2 firmware: it serves an Apple2 host and lists only the Apple2 images.
-`TARGET=multi` builds `out/ffemu-multi/ffemu-multi`, which runs the multi
-firmware: it serves a Shugart host and an Apple2 host alike, detecting which
-one it is connected to as it boots, and in its Apple2 mode lists only the
-Apple2 images, HFE, .nib, .nic, .dsk, .do and .po. In all three, the board and
-floppy code is that of the release, which keeps the rotary encoder where a
-debug build puts two stepper phases. The programs keep their settings and logs
-apart, in `ffemu/`, `ffemu-apple2/` and `ffemu-multi/` of the directories
-below. The build needs a C compiler, `objcopy`, Python 3 (for the font and
-configuration generators of the firmware build) and the wide-character
-"ncurses" library with its headers: `ncurses-devel` on Cygwin/MSYS2,
-`libncurses-dev` on Debian and Ubuntu. On Cygwin/MSYS2 everything but the
-runtime DLL is linked statically, so the program built there also runs in any
-Git Bash.
+The program is `out/ffemu/shugart/ffemu-shugart` under `<path>`, which defaults
+to the top of the source tree. It runs the shugart firmware, which serves a
+Shugart host. `TARGET=apple2` builds `out/ffemu/apple2/ffemu-apple2` instead,
+which runs the apple2 firmware: it serves an Apple2 host and lists only the
+Apple2 images. `TARGET=multi` builds `out/ffemu/multi/ffemu-multi`, which runs
+the multi firmware: it serves a Shugart host and an Apple2 host alike,
+detecting which one it is connected to as it boots, and in its Apple2 mode
+lists only the Apple2 images, HFE, .nib, .nic, .dsk, .do and .po. In all three,
+the board and floppy code is that of the release, which keeps the rotary
+encoder where a debug build puts two stepper phases. The programs keep their
+settings and logs apart, in `ffemu-shugart/`, `ffemu-apple2/` and
+`ffemu-multi/` of the directories below. The build needs a C compiler,
+`objcopy`, Python 3 (for the font and configuration generators of the firmware
+build) and the wide-character "ncurses" library with its headers:
+`ncurses-devel` on Cygwin/MSYS2, `libncurses-dev` on Debian and Ubuntu. On
+Cygwin/MSYS2 everything but the runtime DLL is linked statically, so the
+program built there also runs in any Git Bash.
+
+For a Windows with no MSYS2, Cygwin or Git Bash, `ffemu/win/mk_dist.sh <out>
+<folder>`, run in the MSYS2 shell after the build, makes `<folder>` from the
+programs in `<out>`, the build's `out/`: the programs in `bin/`; the runtime
+DLL, its console helper, without which a program in mintty shows a console
+window, and MSYS2's mintty, the terminal of Git Bash and MSYS2, in
+`runtime/usr/bin/`, so that `runtime/` is the runtime's root, with its mount
+table in `runtime/etc/fstab`, which makes `/tmp` the Windows temporary folder,
+the terminal types in `runtime/usr/share/terminfo/`, without which the
+runtime's ncurses cannot start, and the licenses; and a `.cmd` launcher for
+each program, named after it, onto which a folder or an image can be dropped;
+each names its program and calls `bin/launch.cmd`, which runs it in that mintty
+on the folder's runtime, the program finding the runtime's DLL on `PATH`,
+`bin/` having none. The program keeps its settings and log in
+`bin/<program>/`, and mintty its own in `bin/mintty/config`, so that nothing
+goes into the user's profile folder. That file starts with `xterm-256color`,
+120x50 and the VGA palette, mintty's theme `vga`, its themes
+being in `runtime/usr/share/mintty/themes/`, and has mintty take Braille, which
+its font lacks, from Segoe UI Symbol at the font's size, where Windows'
+fallback takes the same font shrunk to three quarters.
 
 ## Running
 
     ffemu [<directory> | <image> | <disk>]
 
-The USB drive holds the files and folders of `<directory>` as a FAT32 volume.
-File contents are read from the host when the firmware asks for them.
+The USB drive holds the files and folders of `<directory>` as a FAT32 volume,
+or as a FAT16 one, chosen in the Externals dialog, key `8`, for what the device
+is connected to, or by `usb-fat = fat16` in the settings (see below): its
+clusters of 4 KB doubled as far as 32 KB to fit, up to 2 GB, and a root folder
+of 512 entries. File contents are read from the host when the firmware asks for
+them; a change of the file system in the dialog inserts the drive again.
 Alternatively, the drive is read from an image file of a whole drive (as `dd`
 makes it, with or without a partition table, FAT12, FAT16 or FAT32), or from a
 disk itself, such as a real USB drive: `/dev/sdb` on Linux, or `/dev/sdb` for
@@ -100,9 +124,12 @@ otherwise.
   (trailing spaces, and on Windows trailing dots, which Linux drops instead),
   names that differ from another one in the folder only in letter case (only
   possible on Linux; the first in byte order stays), special files, files of 4
-  GB or larger, and anything beyond 50'000 entries or 12 levels of folders.
+  GB or larger, and anything beyond 50'000 entries or 12 levels of folders; and
+  on FAT16, as copying would leave them out, an entry that finds too few of the
+  root folder's 512 entries left, and a file that finds too little of the 2 GB
+  left, the copying going on with the next.
 - Not followed: the order of the entries in a folder, which on a real drive is
-  the order of copying; ffemu sorts them by name.
+  the order of copying; ffemu sorts them by name, and copies in that order.
 
 The emulated device is an SFRKC30.AT2 board (AT32F415, 32 KB RAM) with an OLED
 display, an SSD1306 or an SH1106 controller on a panel of 128x32 or 128x64, a
@@ -208,24 +235,28 @@ sends to the drive, each lit in dark yellow while it is active as on the
 schematics, whatever its voltage, with the key that changes it below:
 
 - Step/Dir (Shugart, PC and the like): `[` toggles D_S (drive select), `]` M_O
-  (motor on), `-` DIR (step direction: active, as at the start, steps inward to
-  higher tracks), `+` sends a STP (step) pulse, which stays lit for a moment,
-  and `\` toggles SID (side select).
-- Apple2: `[` toggles D_E (drive enable), and `+` and `-` move the stepper
-  phases PH0 to PH3 to their next or previous state in the cycle a computer
-  goes through: phase 0 alone, phases 0 and 1, phase 1 alone, and so on. The
-  firmware steps the head when one phase alone is on next to the present one,
-  so two presses make one step. `\` releases all phases, as a computer does
-  between seeks; the state they were in is kept, shown in bright green to the
-  right of the phases, and the next press goes on from it.
+  (motor on), `;` WRG (write gate), `-` DIR (step direction: active, as at the
+  start, steps inward to higher tracks), `+` sends a STP (step) pulse, which
+  stays lit for a moment, and `\` toggles SID (side select).
+- Apple2: `[` toggles D_E (drive enable), `;` WRQ (write request), and `+` and
+  `-` move the stepper phases PH0 to PH3 to their next or previous state in the
+  cycle a computer goes through: phase 0 alone, phases 0 and 1, phase 1 alone,
+  and so on. The firmware steps the head when one phase alone is on next to the
+  present one, so two presses make one step. `\` releases all phases, as a
+  computer does between seeks; the state they were in is kept, shown in bright
+  green to the right of the phases, and the next press goes on from it.
 
-In `ffemu-multi`, key `8` opens the FDD type dialog, which chooses between the
-two and power-cycles the device, since the firmware detects the type as it
-boots: it is on an Apple2 if at least three of the four phases are held low, as
-an Apple2 does at power-on, for at least a quarter of its 200 ms "5v settle"
-delay. The type is kept in the settings as `fdd-type`. In `ffemu` and
-`ffemu-apple2` the firmware has no such choice, so there is no dialog, and the
-type is always Step/Dir or always Apple2.
+The write signal comes with no data, which ffemu does not emulate: the firmware
+shows a write in progress on its display as the device does, and the write
+brings nothing to the image.
+
+In `ffemu-multi`, the Externals dialog (key `8`) chooses the FDD type between
+the two as well, and power-cycles the device for a change, since the firmware
+detects the type as it boots: it is on an Apple2 if at least three of the four
+phases are held low, as an Apple2 does at power-on, for at least a quarter of
+its 200 ms "5v settle" delay. The type is kept in the settings as `fdd-type`.
+In `ffemu-shugart` and `ffemu-apple2` the firmware has no such choice, so the
+dialog does not offer it, and the type is always Step/Dir or always Apple2.
 
 The Apple2 type drives the phases as a "universal" cable does, one that serves
 the stock Apple2 firmware, Oleg Odintsov's Gotek firmware 307 for the Agat (the
@@ -237,15 +268,15 @@ interface, not for trying wirings, so the firmware's second pin set, PH1 on pin
 detection.
 
 `=` also works as `+`, and `/` as `\`, which is the key that types it on a
-Russian layout, as do the keys of `[` and `]`. The drive selected or enabled is
-the default. The signals survive a power cycle of the device (Home), as the
-computer's would; Ctrl+Home or a change of the FDD type puts them back to the
-defaults. The Status pane shows the drive as the firmware sees it, labeled with
-the mode that the firmware detected, `Step/Dir` or `Apple2`: the cylinder and
-the side, and, as Floppy, the image mounted; the firmware's display shows them
-as on the device, and the beeper sounds each step, unless `step-volume` is 0.
-The firmware's banner, shown while no USB drive is in, ends in `A2` in the
-Apple2 mode.
+Russian layout, as do the keys of `[`, `]` and `;`. The drive selected or
+enabled is the default. The signals survive a power cycle of the device (Home),
+as the computer's would; Ctrl+Home or a change of the FDD type puts them back
+to the defaults. The Status pane shows the drive as the firmware sees it,
+labeled with the mode that the firmware detected, `Step/Dir` or `Apple2`: the
+cylinder and the side, and, as Floppy, the image mounted; the firmware's
+display shows them as on the device, and the beeper sounds each step, unless
+`step-volume` is 0. The firmware's banner, shown while no USB drive is in, ends
+in `A2` in the Apple2 mode.
 
 The firmware's own floppy code, `src/floppy.c` with what it includes, runs in
 ffemu against models of the pins, of their EXTI interrupts and of the timer
@@ -368,15 +399,18 @@ to standard output, which is how it can be tested without a terminal:
 
 The commands are `key <action>`, the action being `select`, `left`, `right`,
 `cw`, `ccw`, `remove`, `insert`, `reset` (Home), `relaunch` (Ctrl+Home), `quit`
-or `latch`, or on the floppy interface `sel`, `motor`, `dir`, `step` or `side`
-for Step/Dir, and `sel`, `phase-in`, `phase-out` or `release` for Apple2,
-`fdd-type <step-dir|apple2>`, which in `ffemu-multi` sets the FDD type and
-power-cycles the device as the dialog does, `sleep <ms>`, `dump` (the display
-as text: an LCD as its rows of characters between bars, a 7-segment display as
-its digits drawn with `_` and `|` in three rows, a lit point as `.`), `log`
-(the firmware's console output so far), `status`, `flash` (the `[Flash mem]`
-section as the flash memory is now), and `save <file>`, which writes the USB
-drive as the firmware sees it, its writes included, to an image file.
+or `latch`, or on the floppy interface `sel`, `write`, `motor`, `dir`, `step`
+or `side` for Step/Dir, and `sel`, `write`, `phase-in`, `phase-out` or
+`release` for Apple2, `fdd-type <step-dir|apple2>`, which in `ffemu-multi` sets
+the FDD type and power-cycles the device as the Externals dialog does,
+`usb-fat <fat32|fat16>`, which sets the file system of a drive made from a
+directory and inserts such a drive again as the Externals dialog does,
+`sleep <ms>`, `dump` (the display as text: an LCD as its rows of characters
+between bars, a 7-segment display as its digits drawn with `_` and `|` in
+three rows, a lit point as `.`), `log` (the firmware's console output so far),
+`status`, `flash` (the `[Flash mem]` section as the flash memory is now), and
+`save <file>`, which writes the USB drive as the firmware sees it, its writes
+included, to an image file.
 
 `wait <ms> <log|display|segments> <text>` lets the firmware run until a
 condition holds, checked every 10 ms, or `<ms>` pass, and prints which, as
@@ -429,8 +463,8 @@ with `FFEMU_CLOCK=host` set on the host's.
   chosen, `lcd_font_cyr.h` or `lcd_font_a00.h`.
 - `led_7seg.c`: the 7-segment LED display, a TM1651 or a pair of 74HC164 shift
   registers on two GPIO lines, and its digits as pixels.
-- `fatimg.c`: the USB drive: the FAT32 volume built from a directory, or an
-  image or a disk read as it is, with the firmware's writes kept aside.
+- `fatimg.c`: the USB drive: the FAT32 or FAT16 volume built from a directory,
+  or an image or a disk read as it is, with the firmware's writes kept aside.
 - `tui.c`, `script.c`, `rc.c`, `ffemu.c`: the terminal user interface, the
   script driver, the preferences and the main program.
 
@@ -440,9 +474,9 @@ with the host C library. Only `emu.h` is shared between the two.
 
 ## Not emulated [yet]
 
-- Data flow on the floppy interface, and WGATE; the drive's outputs to the
-  computer (INDEX, TRK0, WRPROT, RDY, DSKCHG) are set by the firmware but not
-  shown.
+- Data flow on the floppy interface, either way: the write signal comes with no
+  data; the drive's outputs to the computer (INDEX, TRK0, WRPROT, RDY, DSKCHG)
+  are set by the firmware but not shown.
 - AT32F435 boards, which have a display driver of their own.
 - The LCD's user-defined characters, its cursor, and a PCF8574A backpack, at
   0x3f, which the firmware would find just as well.
@@ -450,6 +484,4 @@ with the host C library. Only `emu.h` is shared between the two.
 - The firmware's writes reaching the host files, the image or the disk:
   `IMAGE_A.CFG`, `FLASH.DMP` and the like are kept aside until the drive is
   removed.
-- FAT16 on a USB drive made from a directory, which is always FAT32; an image
-  or a disk may be FAT16.
 - A setting for the code page of short names, in place of the system's.
