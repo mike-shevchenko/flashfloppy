@@ -159,7 +159,15 @@ delivers a sequence in pieces now and then; the environment variable
 `ESCDELAY`, in milliseconds, overrides either. The Gotek display is rendered
 via different pseudo-graphical characters - choose the rendering which looks
 right for your terminal and font. There is also a fallback ASCII-only mode for
-the whole app. Beside the display, the `FF.CFG` that the firmware reads is
+the whole app. Braille shows the display's dots evenly only where its glyphs
+fill the cell. Many monospace fonts have no Braille (Lucida Console, Consolas,
+DejaVu Sans Mono), and the terminal then takes it from another font; mintty on
+Windows gets Segoe UI Symbol shrunk to three quarters, with wide gaps between
+the cells. DejaVu Sans, which GNOME Terminal on Ubuntu falls back to for
+Braille, gives a nearly even grid: in mintty, `FontChoice=|Braille Patterns:1`
+with `Font1=DejaVu Sans` takes the Braille block from it, and in Windows
+Terminal a font list such as `"face": "Consolas, DejaVu Sans"` falls back to
+it. Beside the display, the `FF.CFG` that the firmware reads is
 shown; while the USB drive is ejected, it stays there, in light gray: for a
 drive made from a directory, as the file is on the host now, looked for and
 read again on every Del, so that an edit shows what the next insertion will
