@@ -3,7 +3,7 @@
  *
  * The stepper phase spinner of the Apple2 mode on the OLED, included by
  * each display driver, whose text row converters draw it for a character
- * 0x80 plus the phases on.
+ * OLED_SPINNER plus the phases on.
  *
  * Written & released by Mike Shevchenko <mike.shevchenko.kz@gmail.com>
  *
