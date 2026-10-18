@@ -160,10 +160,10 @@ delivers a sequence in pieces now and then; the environment variable
 via different pseudo-graphical characters - choose the rendering which looks
 right for your terminal and font. There is also a fallback ASCII-only mode for
 the whole app. Beside the display, the `FF.CFG` that the firmware reads is
-shown; while the USB drive is ejected, it stays there, dimmed: for a drive made
-from a directory, as the file is on the host now, looked for and read again on
-every Del, so that an edit shows what the next insertion will give the
-firmware; for an image or a disk, as last read from it.
+shown; while the USB drive is ejected, it stays there, in light gray: for a
+drive made from a directory, as the file is on the host now, looked for and
+read again on every Del, so that an edit shows what the next insertion will
+give the firmware; for an image or a disk, as last read from it.
 
 A terminal reports key presses but not releases, so a key press holds its
 virtual button down for a fixed time (150 ms by default), and then auto-repeat
