@@ -185,7 +185,7 @@ TEST(apple2_fields_by_hand)
 
     make_nib62();
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     memset(disk, 0, 35*DSK_TRK);
     memset(&disk[dos_order[1]*256], 0x01, 256);
     drive_add("ZEROS.DSK", disk, 35*DSK_TRK);
@@ -210,7 +210,7 @@ TEST(apple2_dsk_stream)
 
     make_nib62();
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     make_disk(disk, 35);
     drive_add("MADEUP.DSK", disk, 35*DSK_TRK);
     REQUIRE(image_mount("MADEUP.DSK") == FR_OK);
@@ -228,7 +228,7 @@ TEST(apple2_dsk_stream)
 TEST(apple2_do_po_stream)
 {
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     make_disk(disk, 35);
     drive_add("MADEUP.DO", disk, 35*DSK_TRK);
     to_prodos(file, disk, 35);
@@ -248,7 +248,7 @@ TEST(apple2_do_po_stream)
 TEST(apple2_dsk_sizes_mount)
 {
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     make_disk(disk, 40);
     drive_add("TRACKS40.DSK", disk, 40*DSK_TRK);
     make_disk(disk, 35);
@@ -275,7 +275,7 @@ TEST(apple2_prodos_detection)
     };
 
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     make_disk(disk, 35);
     memcpy(&disk[1024], key, sizeof(key));
     disk[1059] = 0x27; /* entry length */
@@ -306,7 +306,7 @@ TEST(apple2_nic_nib_stream)
 
     make_nib62();
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     make_disk(disk, 35);
     for (t = 0; t < 35; t++)
         make_track(&want[t*TRK_LEN], disk, t, dos_order, 0);
@@ -332,7 +332,7 @@ TEST(apple2_write_tracks)
 
     make_nib62();
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     make_disk(disk, 35);
     memset(file, 0, 35*DSK_TRK);
     drive_add("BLANK.DSK", file, 35*DSK_TRK);
@@ -356,7 +356,7 @@ TEST(apple2_write_fields)
 
     make_nib62();
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     make_disk(disk, 35);
     memset(file, 0, 35*DSK_TRK);
     drive_add(names[0], file, 35*DSK_TRK);
@@ -388,7 +388,7 @@ TEST(apple2_write_keeps_trailer)
 
     make_nib62();
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     memset(file, 0, 35*DSK_TRK);
     memcpy(&file[35*DSK_TRK], "AGAT-DISK", 9);
     memset(&file[35*DSK_TRK + 9], 'L', TRAILER - 9);
@@ -415,7 +415,7 @@ TEST(apple2_write_bad_fields)
 
     make_nib62();
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     make_disk(disk, 35);
     drive_add("MADEUP.DSK", disk, 35*DSK_TRK);
     REQUIRE(image_mount("MADEUP.DSK") == FR_OK);
@@ -443,7 +443,7 @@ TEST(apple2_write_spare_pairs)
 
     make_nib62();
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     make_disk(disk, 35);
     for (t = 0; t < 35; t++)
         make_track(&want[t*TRK_LEN], disk, t, dos_order, 1);
@@ -466,7 +466,7 @@ TEST(apple2_write_nic)
 
     make_nib62();
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     make_disk(disk, 35);
     for (t = 0; t < 35; t++)
         make_track(&want[t*TRK_LEN], disk, t, dos_order, 0);
@@ -492,7 +492,7 @@ TEST(apple2_write_nib)
 
     make_nib62();
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     make_disk(disk, 35);
     make_track(want, disk, 3, dos_order, 0);
     for (i = 0; i < TRK_LEN*8; i++) {
@@ -552,6 +552,8 @@ TEST(apple2_write_flux)
     CHECK_MEM(got, disk, 35*DSK_TRK);
 }
 
+#if TARGET == TARGET_multi /* the multi target's image checks */
+
 /* Which files Apple2 mode lists, by size alone. */
 TEST(apple2_listed_sizes)
 {
@@ -581,7 +583,7 @@ TEST(apple2_listed_sizes)
     FILINFO fno;
 
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     image_nr_hidden = 0;
     for (i = 0; i < ARRAY_SIZE(files); i++) {
         memset(&fno, 0, sizeof(fno));
@@ -598,6 +600,8 @@ TEST(apple2_listed_sizes)
     image_log_hidden();
     CHECK(log_has("image(s) hidden by size"));
 }
+
+#endif
 
 /*
  * HFE: an image whose header names an encoding that does not suit the mode
@@ -646,6 +650,8 @@ static uint32_t make_hfe(uint8_t *hfe, uint8_t encoding, bool_t gcr)
     return 1024 + ((len + 255) / 256) * 512;
 }
 
+#if TARGET == TARGET_multi /* the multi target's image checks */
+
 TEST(apple2_hfe_encodings)
 {
     static const uint8_t encodings[5] = { 0x00, 0x02, 0x06, 0x07, 0xff };
@@ -662,7 +668,7 @@ TEST(apple2_hfe_encodings)
             FRESULT fr;
             drive_reset();
             ft_fw_log_clear();
-            apple2_mode = mode;
+            set_apple2_mode(mode);
             len = make_hfe(file, encodings[i], TRUE);
             drive_add("GCR.HFE", file, len);
             fr = image_mount("GCR.HFE");
@@ -685,12 +691,14 @@ TEST(apple2_hfe_encodings)
     CHECK(log_has("HFE: looks GCR"));
 
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     len = make_hfe(file, 0xff, FALSE);
     drive_add("MFM.HFE", file, len);
     REQUIRE(image_mount("MFM.HFE") == FR_OK);
     CHECK(log_has("HFE: looks non-GCR"));
 }
+
+#endif
 
 /*
  * Positions: the floppy code starts a track where the disk has turned to,
@@ -712,7 +720,7 @@ TEST(apple2_mid_track)
 
     make_nib62();
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     make_disk(disk, 35);
     for (t = 0; t < 35; t++)
         make_track(&want[t*TRK_LEN], disk, t, dos_order, 0);
@@ -750,7 +758,7 @@ TEST(apple2_read_after_write)
     make_nib62();
     for (i = 0; i < 3; i++) {
         drive_reset();
-        apple2_mode = TRUE;
+        set_apple2_mode(TRUE);
         make_disk(disk, 35);
         for (t = 0; t < 35; t++)
             make_track(&want[t*TRK_LEN], disk, t, dos_order, 0);
@@ -793,7 +801,7 @@ TEST(apple2_fragmented)
         FRESULT (*mount)(const char *) =
             fast ? image_mount_fast_seek : image_mount;
         drive_reset();
-        apple2_mode = TRUE;
+        set_apple2_mode(TRUE);
         make_disk(disk, 35);
         CHECK_EQ(drive_add_fragmented("MADEUP.DSK", disk, 35*DSK_TRK), 70);
         memset(file, 0, 35*DSK_TRK);
@@ -828,7 +836,7 @@ TEST(apple2_hfe_mid_track)
 
     make_nib62();
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     make_disk(disk, 35);
     make_track(want, disk, 0, dos_order, 0);
     len = make_hfe(file, 0xff, TRUE);

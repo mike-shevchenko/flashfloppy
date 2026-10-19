@@ -44,13 +44,15 @@ static void check_flux(unsigned int track, bool_t lsb_first)
 TEST(flux_nib)
 {
     drive_reset();
-    apple2_mode = TRUE;
+    set_apple2_mode(TRUE);
     fill(file, 35*6656);
     drive_add("A.NIB", file, 35*6656);
     REQUIRE(image_mount("A.NIB") == FR_OK);
     check_flux(5 << 2, FALSE);
     check_flux(34 << 2, FALSE);
 }
+
+#if TARGET == TARGET_multi /* Shugart images */
 
 /* IBM PC 720K: 2us cells of MFM made of the sectors. */
 TEST(flux_img)
@@ -93,6 +95,8 @@ TEST(flux_hfe)
     REQUIRE(image_mount("MFM.HFE") == FR_OK);
     check_flux(0, TRUE);
 }
+
+#endif
 
 /*
  * Local variables:
