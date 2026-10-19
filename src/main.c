@@ -1025,6 +1025,7 @@ static void read_ff_cfg(void)
 
     FRESULT fr;
     int option;
+    bool_t yes;
     struct opts opts = {
         .file = &fs->file,
         .opts = ff_cfg_opts,
@@ -1038,6 +1039,9 @@ static void read_ff_cfg(void)
         return;
 
     while ((option = get_next_opt(&opts)) != -1) {
+
+        /* One comparison for all yes/no options, results in shorter code. */
+        yes = !strcmp(opts.arg, "yes");
 
         switch (option) {
 
@@ -1085,7 +1089,7 @@ static void read_ff_cfg(void)
             break;
 
         case FFCFG_write_protect:
-            ff_cfg.write_protect = !strcmp(opts.arg, "yes");
+            ff_cfg.write_protect = yes;
             break;
 
         case FFCFG_max_cyl:
@@ -1110,7 +1114,7 @@ static void read_ff_cfg(void)
             break;
 
         case FFCFG_index_suppression:
-            ff_cfg.index_suppression = !strcmp(opts.arg, "yes");
+            ff_cfg.index_suppression = yes;
             break;
 
         case FFCFG_head_settle_ms:
@@ -1134,7 +1138,7 @@ static void read_ff_cfg(void)
             /* STARTUP / INITIALISATION */
 
         case FFCFG_ejected_on_startup:
-            ff_cfg.ejected_on_startup = !strcmp(opts.arg, "yes");
+            ff_cfg.ejected_on_startup = yes;
             break;
 
         case FFCFG_image_on_startup:
@@ -1179,7 +1183,7 @@ static void read_ff_cfg(void)
             break;
 
         case FFCFG_nav_loop:
-            ff_cfg.nav_loop = !strcmp(opts.arg, "yes");
+            ff_cfg.nav_loop = yes;
             break;
 
         case FFCFG_twobutton_action: {
@@ -1321,7 +1325,7 @@ static void read_ff_cfg(void)
 
         case FFCFG_show_filename_ext:
             ff_cfg.show_filename_ext =
-                !strcmp(opts.arg, "yes") ? SHOWEXT_yes
+                yes ? SHOWEXT_yes
                 : !strcmp(opts.arg, "auto") ? SHOWEXT_auto
                 : SHOWEXT_no;
             break;
@@ -1394,7 +1398,7 @@ static void read_ff_cfg(void)
             break;
 
         case FFCFG_extend_image:
-            ff_cfg.extend_image = !strcmp(opts.arg, "yes");
+            ff_cfg.extend_image = yes;
             break;
 
         }
