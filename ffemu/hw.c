@@ -88,9 +88,10 @@ void emu_irq_vector(unsigned int nr)
         break;
     case 40: IRQ_40(); break; /* EXTI15_10 */
 #if TARGET_SUPPORTS_APPLE2
-    case 27: IRQ_27(); break; /* TIM1 capture: WDATA */
-#else
-    case 28: IRQ_28(); break; /* TIM2: STEP */
+    case 27: IRQ_27(); break; /* TIM1 capture: WDATA, in Apple2 mode */
+#endif
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
+    case 28: IRQ_28(); break; /* TIM2: STEP, in Shugart mode */
 #endif
     case 43: IRQ_43(); break; /* the floppy interface's soft IRQ */
     default:
@@ -227,20 +228,20 @@ static void fdd_pins(uint32_t *pa, uint32_t *pb)
         *pa &= ~m(PA_SEL0);
     if (in & EMU_FDD_WRITE)
         *pb &= ~m(PB_WGATE);
-#if TARGET == TARGET_apple2
-    /* The stepper phases, unlike the drive enable, are active high. */
-    *pa &= ~(m(PA_PHA0) | m(PA_PHA1) | m(PA_STEP));
-    *pb &= ~m(PB_DIR);
-    if (in & (EMU_FDD_PH0 << 0))
-        *pa |= m(PA_PHA0);
-    if (in & (EMU_FDD_PH0 << 1))
-        *pa |= m(PA_PHA1);
-    if (in & (EMU_FDD_PH0 << 2))
-        *pb |= m(PB_DIR);
-    if (in & (EMU_FDD_PH0 << 3))
-        *pa |= m(PA_STEP);
-    (void)step_ends;
-#else
+    if (emu_fdd_type == EMU_FDD_TYPE_apple2) {
+        /* The stepper phases, unlike the drive enable, are active high. */
+        *pa &= ~(m(PA_PHA0) | m(PA_PHA1) | m(PA_STEP));
+        *pb &= ~m(PB_DIR);
+        if (in & (EMU_FDD_PH0 << 0))
+            *pa |= m(PA_PHA0);
+        if (in & (EMU_FDD_PH0 << 1))
+            *pa |= m(PA_PHA1);
+        if (in & (EMU_FDD_PH0 << 2))
+            *pb |= m(PB_DIR);
+        if (in & (EMU_FDD_PH0 << 3))
+            *pa |= m(PA_STEP);
+        return;
+    }
     if (step_low)
         *pa &= ~m(PA_STEP);
     if (in & EMU_FDD_DIR)
@@ -256,7 +257,6 @@ static void fdd_pins(uint32_t *pa, uint32_t *pb)
         if (emu_tim[1].dier & TIM_DIER_CC2IE)
             emu_irqx_set_pending(28);
     }
-#endif
 }
 
 /* The encoder rests at 3 and outputs a Gray code. One detent is four

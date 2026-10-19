@@ -26,6 +26,10 @@
 #endif
 #define pin_pha2    0 /* PB0 */
 #define pin_pha3    1 /* PA1 */
+/* The phases on, as bits 0-3, from latched port inputs; active high. */
+#define phase_bits(idr_a, idr_b) \
+    ((((idr_a) >> pin_pha0) & 1) | (((idr_a) >> (pin_pha1-1)) & 2) \
+    | (((idr_b) << (2-pin_pha2)) & 4) | (((idr_a) << (3-pin_pha3)) & 8))
 #define pin_sel0    0 /* PA0 */
 #define pin_sel1    3 /* PA3 */
 static uint8_t pin_wgate = 9; /* PB9 */
@@ -61,8 +65,10 @@ DEFINE_IRQ(dma_rdata_irq, "IRQ_rdata_dma");
 #if TARGET_SUPPORTS_APPLE2
 static struct timer step_timer;
 static void POLL_step(void *unused);
-#elif TARGET == TARGET_shugart
+#endif
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
 void IRQ_28(void) __attribute__((alias("IRQ_STEP_changed"))); /* TMR2 */
+#define STEP_IRQ 28
 #endif
 
 /* EXTI IRQs. */
@@ -73,21 +79,39 @@ void IRQ_23(void) __attribute__((alias("IRQ_WGATE_rotary"))); /* EXTI9_5 */
 void IRQ_40(void) __attribute__((alias("IRQ_MOTOR_CHGRST_rotary"))); /* EXTI15_10 */
 #if TARGET_SUPPORTS_APPLE2
 void IRQ_27(void) __attribute__((alias("IRQ_wdata_capture"))); /* TMR1_CC */
+#define WDATA_IRQ 27
 #endif
 #define MOTOR_CHGRST_IRQ 40
 static const struct exti_irq exti_irqs[] = {
 #if TARGET_SUPPORTS_APPLE2
-    /* WDATA */ { 27, FLOPPY_IRQ_WGATE_PRI, 0 },
+    /* WDATA */ { WDATA_IRQ, FLOPPY_IRQ_WGATE_PRI, 0 },
 #endif
     /* SELA */ {  6, FLOPPY_IRQ_SEL_PRI, 0 }, 
-#if TARGET == TARGET_shugart
-    /* STEP */ { 28, FLOPPY_IRQ_STEP_PRI, m(2) /* dummy */ },
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
+    /* STEP */ { STEP_IRQ, FLOPPY_IRQ_STEP_PRI, m(2) /* dummy */ },
 #endif
     /* WGATE */ {  7, FLOPPY_IRQ_WGATE_PRI, 0 },
     /* SIDE */ { 10, TIMER_IRQ_PRI, 0 }, 
     /* WGATE */ { 23, FLOPPY_IRQ_WGATE_PRI, 0 },
     /* MTR/CHGRST */ { 40, TIMER_IRQ_PRI, 0 }
 };
+
+#if TARGET == TARGET_multi
+/* WDATA toggles are captured in Apple2 mode only, and STEP is a stepper
+ * phase there. */
+static bool_t exti_irq_wanted(const struct exti_irq *e)
+{
+    switch (e->irq) {
+    case WDATA_IRQ:
+        return apple2_mode;
+    case STEP_IRQ:
+        return !apple2_mode;
+    }
+    return TRUE;
+}
+#else
+#define exti_irq_wanted(e) TRUE
+#endif
 
 /* Subset of output pins which are active (O_TRUE). */
 extern uint32_t gpio_out_active;
@@ -121,6 +145,48 @@ static void dma_rd_set_active(bool_t active)
         __sync_fetch_and_or(&gpio_out_active, m(GPIO_OUT_DMA_RD_ACTIVE));
     else
         __sync_fetch_and_and(&gpio_out_active, ~m(GPIO_OUT_DMA_RD_ACTIVE));
+}
+
+#endif
+
+#if TARGET == TARGET_multi
+
+bool_t apple2_mode;
+
+/* An Apple2 host holds all four stepper phases low at power-on, and raises
+ * at most two of them while it seeks. A Shugart host leaves PA9 and PA10
+ * high: nothing but the pull-up is on them, except on QFN32, where they are
+ * the JC strap and the KC30 Select button. So we are on an Apple2 if at
+ * least three of the four phase inputs are low in at least a quarter of
+ * the samples: a host at rest may hold one phase on, and a Shugart host
+ * leaves at most DIR low. Or if phase 3's input is, STEP, which a Shugart
+ * host never holds low: a host stopped on a half track holds two phases
+ * on, and of the pairs of them, 0 and 1 and 1 and 2 leave STEP low. */
+void apple2_detect(unsigned int ms)
+{
+    time_t t = time_now();
+    unsigned int i, j, nr, low[4] = { 0 };
+
+    for (i = 0; i < ms; i++) {
+        uint16_t idr_a = gpioa->idr, idr_b = gpiob->idr;
+        unsigned int high = phase_bits(idr_a, idr_b);
+        for (j = 0; j < 4; j++, high >>= 1)
+            low[j] += !(high & 1);
+        delay_from(t, time_ms(i + 1));
+    }
+
+    for (nr = 0, j = 0; j < 4; j++)
+        nr += (low[j] >= ms/4);
+    apple2_mode = (nr >= 3) || (low[3] >= ms/4);
+
+#if LEVEL == LEVEL_debug
+    /* Phases 0 and 1 are on the KC30 rotary pins: no encoder then. */
+    if (apple2_mode)
+        has_kc30_header = 0;
+#endif
+
+    printk("Apple2 %s (%u/%u/%u/%u %ums)\n", apple2_mode ? "on" : "off",
+           low[0], low[1], low[2], low[3], ms);
 }
 
 #endif
@@ -386,10 +452,7 @@ static void POLL_step(void *unused)
 
     /* Debounce the phase signals. */
     pha = _pha;
-    _pha = ((idr_a >> pin_pha0) & 1)
-        | ((idr_a >> (pin_pha1-1)) & 2)
-        | ((idr_b << (2-pin_pha2)) & 4)
-        | ((idr_a << (3-pin_pha3)) & 8);
+    _pha = phase_bits(idr_a, idr_b);
     pha &= _pha;
 
     /* Do nothing while we're mid-step. */
@@ -434,7 +497,7 @@ out:
 
 #endif
 
-#if TARGET == TARGET_shugart
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
 
 static bool_t drive_is_writing(void)
 {

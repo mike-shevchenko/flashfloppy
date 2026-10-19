@@ -1,8 +1,9 @@
 /*
  * test_floppy.c
  *
- * The floppy interface: how the head steps for a Shugart host's STEP and
- * DIR, or for an Apple2 host's stepper phases.
+ * The floppy interface: what the multi firmware detects at boot, and how
+ * the head steps for a Shugart host's STEP and DIR, or for an Apple2 host's
+ * stepper phases.
  *
  * Written & released by Mike Shevchenko <mike.shevchenko@gmail.com>
  *
@@ -24,7 +25,7 @@ static unsigned int track(void)
     return (TARGET == TARGET_apple2) ? ti.cyl / 2 : ti.cyl;
 }
 
-#if TARGET == TARGET_apple2
+#if TARGET_SUPPORTS_APPLE2
 
 /* The stepper phases on, bits 0 to 3, on their pins: phase 0 on PA10, 1 on
  * PA9, 2 on PB0 and 3 on PA1; active high. */
@@ -40,6 +41,98 @@ static void set_phases(unsigned int pha)
  * phase next to the current one, as DOS 3.3 does, through the pairs of
  * phases between them: the eight states of a seek, at most two phases on. */
 static const uint8_t seek_states[8] = { 1, 3, 2, 6, 4, 12, 8, 9 };
+
+#endif
+
+#if TARGET == TARGET_multi /* detection at boot */
+
+TEST(floppy_detect_apple2_at_rest)
+{
+    drive_reset();
+    board_reset();
+    set_phases(0);
+    apple2_detect(200);
+    CHECK(apple2_mode);
+    CHECK(log_has("Apple2 on (200/200/200/200 200ms)"));
+}
+
+/* After a warm reset the Agat's controller may hold phase 0 on. */
+TEST(floppy_detect_apple2_one_phase_on)
+{
+    drive_reset();
+    board_reset();
+    set_phases(1);
+    apple2_detect(200);
+    CHECK(apple2_mode);
+    CHECK(log_has("Apple2 on (0/200/200/200 200ms)"));
+}
+
+/* A host stopped on a half track holds two phases on: 0 and 1 leave only
+ * phases 2 and 3 low, STEP among them, which a Shugart host never holds. */
+TEST(floppy_detect_apple2_phases_0_1_on)
+{
+    drive_reset();
+    board_reset();
+    set_phases(3);
+    apple2_detect(200);
+    CHECK(apple2_mode);
+    CHECK(log_has("Apple2 on (0/0/200/200 200ms)"));
+}
+
+TEST(floppy_detect_apple2_phases_1_2_on)
+{
+    drive_reset();
+    board_reset();
+    set_phases(6);
+    apple2_detect(200);
+    CHECK(apple2_mode);
+    CHECK(log_has("Apple2 on (200/0/0/200 200ms)"));
+}
+
+/* A Shugart host leaves the phase pins high but for DIR, PB0. */
+TEST(floppy_detect_shugart)
+{
+    drive_reset();
+    board_reset();
+    pin_set(PB, 0, FALSE);
+    apple2_detect(200);
+    CHECK(!apple2_mode);
+    CHECK(log_has("Apple2 off"));
+}
+
+/* On QFN32 the JC strap holds PA9 low: with DIR, two phase inputs low,
+ * neither of them STEP, which is still a Shugart host. */
+TEST(floppy_detect_shugart_jc_strapped)
+{
+    drive_reset();
+    board_reset();
+    pin_set(PA, 9, FALSE);
+    pin_set(PB, 0, FALSE);
+    apple2_detect(200);
+    CHECK(!apple2_mode);
+    CHECK(log_has("Apple2 off"));
+}
+
+/* A host seeking during the window, a millisecond in each state. */
+static void seeking(time_t now)
+{
+    set_phases(seek_states[(now / time_ms(1)) % 8]);
+}
+
+TEST(floppy_detect_apple2_seeking)
+{
+    drive_reset();
+    board_reset();
+    clock_hook = seeking;
+    seeking(0);
+    apple2_detect(200);
+    CHECK(apple2_mode);
+}
+
+#endif
+
+#if TARGET_SUPPORTS_APPLE2
+
 static unsigned int seek_state; /* in seek_states[], even: one phase on */
 
 static void seek(int halftracks)
@@ -58,6 +151,10 @@ static void apple2_boot(void)
     drive_reset();
     board_reset();
     set_phases(0);
+#if TARGET == TARGET_multi
+    apple2_detect(200);
+#endif
+    REQUIRE(apple2_mode);
     floppy_init();
     floppy_set_cyl(0, 0);
     pin_set(PA, 0, FALSE); /* selected */
@@ -83,13 +180,19 @@ TEST(floppy_apple2_steps)
     CHECK_EQ(nr_speaker_pulses, 12);
 }
 
-#else
+#endif
+
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
 
 /* A Shugart host steps by a pulse on STEP, inward while DIR is low. */
 static void shugart_boot(void)
 {
     drive_reset();
     board_reset();
+#if TARGET == TARGET_multi
+    apple2_detect(200);
+    REQUIRE(!apple2_mode);
+#endif
     floppy_init();
     floppy_set_cyl(0, 0);
     pin_set(PA, 0, FALSE); /* selected */

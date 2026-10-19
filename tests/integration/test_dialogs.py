@@ -24,6 +24,9 @@ class Dialogs(fr.Case, unittest.TestCase):
     def test_apple2(self):
         self.check("ffemu-apple2")
 
+    def test_multi(self):
+        self.check("ffemu-multi")
+
 
 if __name__ == "__main__":
     unittest.main()

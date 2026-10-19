@@ -42,6 +42,7 @@ OBJS += fs_hint.o
 
 OBJS-$(shugart) += floppy.o
 OBJS-$(apple2) += floppy.o
+OBJS-$(multi) += floppy.o
 OBJS-$(quickdisk) += quickdisk.o
 
 SUBDIRS += display

@@ -9,7 +9,7 @@
  * See the file COPYING for more details, or visit <http://unlicense.org>.
  */
 
-#if TARGET == TARGET_shugart
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
 
 image_open_fn adf_open;
 image_open_fn atr_open;
@@ -69,6 +69,24 @@ const struct image_type image_type[] = {
     { "xdf", xdf_open },
     { "", NULL }
 };
+
+#if TARGET == TARGET_multi
+
+image_open_fn nib_open;
+image_open_fn nic_open;
+image_open_fn a2dsk_open;
+
+const struct image_type apple2_image_type[] = {
+    { "hfe", hfe_open },
+    { "nib", nib_open },
+    { "nic", nic_open },
+    { "dsk", a2dsk_open },
+    { "do", a2dsk_open },
+    { "po", a2dsk_open },
+    { "", NULL }
+};
+
+#endif
 
 #elif TARGET == TARGET_apple2
 
@@ -154,13 +172,16 @@ bool_t image_valid(FILINFO *fp)
 
     /* Check valid extension. */
     filename_extension(fp->fname, ext, sizeof(ext));
-    if ((TARGET == TARGET_shugart) && !strcmp(ext, "adf")) {
+    if (((TARGET == TARGET_shugart) || (TARGET == TARGET_multi))
+        && !apple2_mode && !strcmp(ext, "adf")) {
         return (ff_cfg.host == HOST_acorn) || !(fp->fsize % (2*11*512));
     } else {
-        const struct image_type *type;
-        for (type = &image_type[0]; type->open != NULL; type++)
+        const struct image_type *type = apple2_mode
+            ? &apple2_image_type[0] : &image_type[0];
+        for (; type->open != NULL; type++)
             if (image_type_is(type, ext))
-                return !image_is_hidden(type->open, fp->fsize);
+                return !apple2_mode
+                    || !image_is_hidden(type->open, fp->fsize);
     }
 
     return FALSE;
@@ -193,7 +214,7 @@ static bool_t try_handler(struct image *im, struct slot *slot,
     return handler != NULL;
 }
 
-#if TARGET == TARGET_shugart
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
 
 void image_open(struct image *im, struct slot *slot, DWORD *cltbl)
 {
@@ -213,6 +234,15 @@ void image_open(struct image *im, struct slot *slot, DWORD *cltbl)
     /* Extract filename extension (if available). */
     memcpy(ext, slot->type, sizeof(slot->type));
     ext[sizeof(slot->type)] = '\0';
+
+    if (apple2_mode) {
+        /* Apple2 image types are distinguished by extension alone. */
+        for (type = &apple2_image_type[0]; type->open != NULL; type++)
+            if (image_type_is(type, ext)
+                && try_handler(im, slot, cltbl, type->open))
+                return;
+        F_die(FR_BAD_IMAGE);
+    }
 
     /* Use the extension as a hint to the correct image handler. */
     for (type = &image_type[0]; type->open != NULL; type++)
@@ -341,7 +371,7 @@ bool_t image_setup_track(
 {
     const struct image_handler *h = im->track_handler;
 
-#if TARGET == TARGET_shugart
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
     if (!in_da_mode(im, track>>1)) {
         /* If we are exiting D-A mode then need to re-read the config file. */
         if (h == &da_image_handler)

@@ -2,12 +2,14 @@
 # driven against a USB drive in RAM, or against ffemu's drive made from a
 # directory.
 #
-# Usage: make -C tests [O=<path>] [TARGET=shugart|apple2] [run | all | clean]
+# Usage: make -C tests [O=<path>] [TARGET=shugart|apple2|multi]
+#            [run | all | clean]
 #
 # The default, run, builds $(O)/out/tests/unit/$(TARGET)/fftest-$(TARGET):
-# fftest-shugart, the tests of the shugart firmware, or for TARGET=apple2
-# fftest-apple2, those of the apple2 firmware, and runs it; it takes names of
-# tests to run, as in "make -C tests run T=img_pc". all builds it
+# fftest-shugart, the tests of the shugart firmware, for TARGET=apple2
+# fftest-apple2, those of the apple2 firmware, or for TARGET=multi
+# fftest-multi, both and those of the multi firmware's own, and runs it; it
+# takes names of tests to run, as in "make -C tests run T=img_pc". all builds it
 # and runs it only when it has changed since the tests last passed, so that a
 # build that leaves it alone costs nothing and a failing test stops the
 # build. EXTRA_CFLAGS goes to every compile and to the link, as in
@@ -47,9 +49,10 @@ FW_SRCS += image/da.c image/dummy.c image/mfm.c image/apple2.c
 FW_SRCS += floppy.c
 TEST_SRCS := harness.c floppy_env.c test_floppy.c test_flux.c
 TEST_SRCS += test_logfile.c
-ifeq ($(TARGET),shugart)
+ifneq ($(TARGET),apple2)
 TEST_SRCS += test_img.c test_util.c test_fatimg.c
-else
+endif
+ifneq ($(TARGET),shugart)
 TEST_SRCS += test_apple2.c
 endif
 
@@ -100,7 +103,7 @@ $(OUT)/test/harness.o: $(OUT)/ff_cfg_defaults.h
 
 # As in ffemu/Makefile: the floppy code of the logfile level keeps the Apple2
 # stepper phases on the release's pins.
-ifeq ($(TARGET),apple2)
+ifneq ($(TARGET),shugart)
 $(OUT)/fw/floppy.o: FW_CFLAGS += -ULEVEL -DLEVEL=LEVEL_logfile
 endif
 
