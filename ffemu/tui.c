@@ -149,11 +149,12 @@ enum {
 #define FLASH_KEY '9'
 
 /* The key that opens the dialog to choose what the device is connected to:
- * the file system of a USB drive made from a directory, and FF OSD. */
+ * the computer on the cable, in the multi program only, whose firmware
+ * detects it at boot, the file system of a USB drive, and FF OSD. */
 #define EXTERNALS_KEY '8'
 
 /* The dialog on screen, if any, its highlighted button (0 is the first),
- * and the display that the display dialog has selected. */
+ * and the display or the FDD type that its dialog has selected. */
 static enum {
     DLG_none, DLG_quit, DLG_display, DLG_rows, DLG_flash, DLG_emul,
     DLG_externals, DLG_message, DLG_fdfile, DLG_unpack, DLG_write
@@ -178,14 +179,16 @@ static const char * const df_label[DF_nr] = {
     [DF_synth] = "OLED 8x16 ~f~ont",
     [DF_mcu] = "Display driver of ~M~CU",
 };
-/* The Externals dialog's file system, 1 for FAT16, and whether FF OSD is
- * fitted, and the places of its focus. */
-static int dialog_usb_fat;
+/* The Externals dialog's FDD type, file system, 1 for FAT16, and whether
+ * FF OSD is fitted, and the places of its focus, the FDD types in the
+ * multi program only. */
+static int dialog_fdd_type, dialog_usb_fat;
 static bool dialog_osd;
-enum { EF_fat, EF_osd, EF_ok, EF_cancel, EF_nr };
+enum { EF_fdd, EF_fat, EF_osd, EF_ok, EF_cancel, EF_nr };
 /* The Externals dialog's labels, by the control each names, `~` around the
  * letter that moves the focus to it. */
 static const char * const ef_label[EF_nr] = {
+    [EF_fdd] = "~F~DD type: the computer on the floppy cable",
     [EF_fat] = "File ~s~ystem of a USB drive made from a directory",
     [EF_osd] = "FF ~O~SD: the display's text over the host's video",
 };
@@ -1040,7 +1043,7 @@ static void draw_status(int y, int x, int w)
     unsigned int cyl, side;
     const char *image;
     attr_t gray = COLOR_PAIR(CP_text), green = BRIGHT(CP_good);
-    int sel, c;
+    int apple2, sel, c;
 
     frame(y, x, w, PANE_ROWS + 2, "Status", COLOR_PAIR(CP_text),
           COLOR_PAIR(CP_text));
@@ -1058,19 +1061,21 @@ static void draw_status(int y, int x, int w)
     field(&y, x, w, "Board", 0, "%s", emu_board_name());
     y++;
 
-    /* The drive as the firmware sees it: values and states in green, words
-     * and punctuation in gray, as for the USB drive below. */
-    emu_fdd_status(&cyl, &side, &sel, &image);
-    put(y, x, w, 0, "FDD");
+    /* The drive as the firmware sees it, labeled with the mode it detected:
+     * values and states in green, words and punctuation in gray, as for the
+     * USB drive below. */
+    emu_fdd_status(&apple2, &cyl, &side, &sel, &image);
+    put(y, x, w, green, "%s", fdd_type_label[apple2 ? EMU_FDD_TYPE_apple2
+                                             : EMU_FDD_TYPE_step_dir]);
     c = piece(y, x + 10, x + w, gray, "Cyl ");
     c = piece(y, c, x + w, green, "%u", cyl);
-    if (!FFEMU_APPLE2) {
+    if (!apple2) {
         c = piece(y, c, x + w, gray, ", side ");
         c = piece(y, c, x + w, green, "%u", side);
     }
     c = piece(y, c, x + w, gray, ", ");
     piece(y++, c, x + w, green, "%s%s", sel ? "" : "not ",
-          FFEMU_APPLE2 ? "enabled" : "selected");
+          apple2 ? "enabled" : "selected");
     field(&y, x, w, "Floppy", image ? BRIGHT(CP_path) : DARK_GRAY, "%s",
           image ? image : "None");
     y++;
@@ -1425,15 +1430,15 @@ static void fdd_panel(int y, int x, int w)
 #define KEY(act) key_attr(now < fdd_lit_until[act])
     unsigned int in = emu_in_fdd;
     uint64_t now = emu_time_ns();
+    bool apple2 = emu_fdd_type == EMU_FDD_TYPE_apple2;
     char ph[5];
     int i, c;
 
     put(y, x, w, 0, "FDD:");
     /* The kind of controller on the other side of the cable. */
-    put(y + 1, x, w, BRIGHT(CP_good), "%s",
-        FFEMU_APPLE2 ? "Apple2" : "Step/Dir");
+    put(y + 1, x, w, BRIGHT(CP_good), "%s", fdd_type_label[emu_fdd_type]);
 
-    if (FFEMU_APPLE2) {
+    if (apple2) {
         static const char * const name[6] = {
             "D_E", "WRQ", "PH0", "PH1", "PH2", "PH3" };
         static const unsigned int bit[6] = {
@@ -2200,21 +2205,42 @@ static void draw_display_dialog(void)
             mcu_help[dialog_mcu]);
 }
 
-/* What the device is connected to, each as radio buttons: the file system of
- * a USB drive made from a directory; and FF OSD, as a check box. */
+/* What the device is connected to, each as radio buttons: in the multi
+ * program the FDD type, what the keyboard stands in for on the cable, which
+ * the firmware detects when it boots; the file system of a USB drive made
+ * from a directory; and FF OSD, as a check box. */
 static void draw_externals_dialog(void)
 {
+    static const char * const what[FDD_TYPE_nr] = {
+        [EMU_FDD_TYPE_step_dir] = "Shugart (Beta Disk), IBM PC and the like",
+        [EMU_FDD_TYPE_apple2] = "Apple Disk II, Pravetz/Agat (Izot) 140K"
+    };
     static const char * const fat_label[2] = {
         "FAT32", "FAT16: up to 2 GB, a root folder of 512 entries"
     };
+    char text[96];
     int w = 68, h = 6, y, x, i, row;
 
     /* The frame, its empty first row and the buttons, then each cluster's
      * label, options and empty row, and its note below them all. */
+    if (FFEMU_MULTI)
+        h += 1 + FDD_TYPE_nr + 1 + 1;
     h += 1 + 2 + 1 + 1;
     h += 1 + 1 + 1 + 1;
     dialog_box(w, h, "Externals", &y, &x);
     row = y + 2;
+    if (FFEMU_MULTI) {
+        put_marked(row++, x + 3, w - 6, COLOR_PAIR(CP_dialog),
+                   COLOR_PAIR(CP_dlg_hot), ef_label[EF_fdd]);
+        for (i = 0; i < FDD_TYPE_nr; i++) {
+            snprintf(text, sizeof(text), "%s: %s", fdd_type_label[i],
+                     what[i]);
+            radio_row(row++, x + 3, w - 6, i == dialog_fdd_type,
+                      (dialog_focus == EF_fdd) && (i == dialog_fdd_type),
+                      text);
+        }
+        row++;
+    }
     put_marked(row++, x + 3, w - 6, COLOR_PAIR(CP_dialog),
                COLOR_PAIR(CP_dlg_hot), ef_label[EF_fat]);
     for (i = 0; i < 2; i++)
@@ -2227,6 +2253,9 @@ static void draw_externals_dialog(void)
     check_row(row++, x + 3, w - 6, dialog_osd, dialog_focus == EF_osd,
               "Fitted, on the I2C bus beside an OLED or an LCD");
     row++;
+    if (FFEMU_MULTI)
+        put(row++, x + 3, w - 4, COLOR_PAIR(CP_dialog), "%s",
+            "Changing the FDD type restarts the device.");
     put(row++, x + 3, w - 4, COLOR_PAIR(CP_dialog), "%s",
         "Changing the file system inserts such a drive again.");
     put(row++, x + 3, w - 4, COLOR_PAIR(CP_dialog), "%s",
@@ -2522,8 +2551,11 @@ static int externals_dialog_key(int key)
             dialog_osd = !dialog_osd;
         break;
     case KEY_UP: case KEY_DOWN:
-        if ((dialog_focus == EF_fat) && (dialog_usb_fat + d >= 0)
-            && (dialog_usb_fat + d < 2))
+        if ((dialog_focus == EF_fdd) && (dialog_fdd_type + d >= 0)
+            && (dialog_fdd_type + d < FDD_TYPE_nr))
+            dialog_fdd_type += d;
+        else if ((dialog_focus == EF_fat) && (dialog_usb_fat + d >= 0)
+                 && (dialog_usb_fat + d < 2))
             dialog_usb_fat += d;
         break;
     case 27:
@@ -2535,12 +2567,16 @@ static int externals_dialog_key(int key)
     default:
         for (i = 0; i < EF_nr; i++)
             if ((key > 0) && (key < 0x80)
-                && (hotkey_of(ef_label[i]) == tolower(key)))
+                && (hotkey_of(ef_label[i]) == tolower(key))
+                && ((i != EF_fdd) || FFEMU_MULTI))
                 dialog_focus = i;
         break;
     }
-    if (step != 0)
+    while (step != 0) {
         dialog_focus = (dialog_focus + EF_nr + step) % EF_nr;
+        if ((dialog_focus != EF_fdd) || FFEMU_MULTI)
+            break;
+    }
     dialog_button = (dialog_focus == EF_cancel);
     return DK_taken;
 }
@@ -2787,6 +2823,18 @@ static void set_display(int display, int mcu)
     }
     if (rows_restart)
         leave(KEY_ACT_reset);
+}
+
+/* Makes the computer on the cable one of FDD type @type, if another than it
+ * is, and power-cycles the device, which detects the type as it boots. */
+static void set_fdd_type(int type)
+{
+    if (type == config.fdd_type)
+        return;
+    ui_fdd_set_type(type);
+    config.fdd_type = type;
+    rc_save();
+    leave(KEY_ACT_reset);
 }
 
 /*
@@ -4210,6 +4258,8 @@ static void draw_flash_dialog(void)
  * types there. */
 static int fdd_key(int key)
 {
+    bool apple2 = emu_fdd_type == EMU_FDD_TYPE_apple2;
+
     switch (key) {
     case '[':
         return FDD_ACT_sel;
@@ -4218,11 +4268,11 @@ static int fdd_key(int key)
     case ']':
         return FDD_ACT_motor;
     case '-':
-        return FFEMU_APPLE2 ? FDD_ACT_phase_out : FDD_ACT_dir;
+        return apple2 ? FDD_ACT_phase_out : FDD_ACT_dir;
     case '+': case '=':
-        return FFEMU_APPLE2 ? FDD_ACT_phase_in : FDD_ACT_step;
+        return apple2 ? FDD_ACT_phase_in : FDD_ACT_step;
     case '\\': case '/':
-        return FFEMU_APPLE2 ? FDD_ACT_release : FDD_ACT_side;
+        return apple2 ? FDD_ACT_release : FDD_ACT_side;
     }
     return -1;
 }
@@ -4333,14 +4383,18 @@ static void handle_key(int key)
     case DK_emul_no:
         leave(KEY_ACT_reset);
     case DK_externals:
+        /* The file system first: the new type restarts the device. */
         ui_usb_set_fat16(dialog_usb_fat == 1);
         /* The firmware finds FF OSD as it starts: a change restarts the
-         * device. */
+         * device, as one of the FDD type does. */
         if (dialog_osd != config.osd) {
             config.osd = dialog_osd;
-            rc_save();
-            leave(KEY_ACT_reset);
+            if (dialog_fdd_type == config.fdd_type) {
+                rc_save();
+                leave(KEY_ACT_reset);
+            }
         }
+        set_fdd_type(dialog_fdd_type);
         return;
     case DK_fdfile_yes: {
         const char *values[EMU_OPTIONS_MAX];
@@ -4403,9 +4457,10 @@ static void handle_key(int key)
     if (key == EXTERNALS_KEY) {
         dialog = DLG_externals;
         dialog_button = 0;
+        dialog_fdd_type = config.fdd_type;
         dialog_usb_fat = config.usb_fat16;
         dialog_osd = config.osd;
-        dialog_focus = EF_fat;
+        dialog_focus = FFEMU_MULTI ? EF_fdd : EF_fat;
         return;
     }
 

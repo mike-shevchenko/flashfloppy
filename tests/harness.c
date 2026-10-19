@@ -155,6 +155,9 @@ void drive_reset(void)
     nr_files = 0;
 
     ff_cfg = dfl_ff_cfg;
+#if TARGET == TARGET_multi
+    set_apple2_mode(FALSE);
+#endif
 }
 
 #define CLUS_SZ (CLUS_SECS*SECSZ)

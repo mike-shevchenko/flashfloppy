@@ -1,11 +1,11 @@
 # ffemu: runs the FlashFloppy user interface in a terminal, with no hardware.
 #
-# Usage: make -C ffemu [O=<path>] [TARGET=shugart|apple2]
+# Usage: make -C ffemu [O=<path>] [TARGET=shugart|apple2|multi]
 #
 # The program is built as $(O)/out/ffemu/$(TARGET)/ffemu-$(TARGET):
-# ffemu-shugart for the shugart firmware, or ffemu-apple2 for the Apple2
-# firmware. O defaults to the top of the source tree, as in the main
-# Makefile.
+# ffemu-shugart runs the shugart firmware, ffemu-apple2 the apple2 one, and
+# ffemu-multi the multi firmware, with its Step/Dir and Apple2 modes. O
+# defaults to the top of the source tree, as in the main Makefile.
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))..)
 EMU := $(ROOT)/ffemu
@@ -80,6 +80,9 @@ HOST_CFLAGS += -DNCURSES_WIDECHAR=1 -DFFEMU_NAME='"$(NAME)"'
 ifeq ($(TARGET),apple2)
 HOST_CFLAGS += -DFFEMU_APPLE2=1
 endif
+ifeq ($(TARGET),multi)
+HOST_CFLAGS += -DFFEMU_MULTI=1
+endif
 HOST_CFLAGS += -MMD -MP
 
 LIBS := $(shell pkg-config --libs ncursesw 2>/dev/null || echo -lncursesw)
@@ -124,10 +127,10 @@ $(OUT)/gen/%.o: $(OUT)/gen/%.c
 	@echo CC $*.c
 	$(Q)$(CC) $(FW_CFLAGS) -c $< -o $@
 
-# The Apple2 debug build moves two stepper phases onto the rotary encoder
+# A debug build moves two Apple2 stepper phases onto the rotary encoder
 # pins; the board and floppy code of the logfile level keep them where the
 # release has them, and ffemu takes the console output itself.
-ifeq ($(TARGET),apple2)
+ifneq ($(TARGET),shugart)
 $(OUT)/fw/gotek/board.o $(OUT)/fw/floppy.o: \
     FW_CFLAGS += -ULEVEL -DLEVEL=LEVEL_logfile
 endif
