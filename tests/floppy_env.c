@@ -188,7 +188,8 @@ void irqs_run(void)
         case 23: IRQ_23(); break;
 #if TARGET_SUPPORTS_APPLE2
         case 27: IRQ_27(); break; /* TMR1_CC: WDATA */
-#else
+#endif
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
         case 28: IRQ_28(); break; /* TIM2: STEP */
 #endif
         case 40: IRQ_40(); break;
@@ -326,13 +327,21 @@ static time_t index_time;
 
 void floppy_boot(void)
 {
+    bool_t apple2 = apple2_mode;
+
     board_reset();
-#if TARGET == TARGET_apple2
-    /* The stepper phases at rest: all off, their pins low. */
-    pin_set(PA, 10, FALSE);
-    pin_set(PA, 9, FALSE);
-    pin_set(PB, 0, FALSE);
-    pin_set(PA, 1, FALSE);
+    if (apple2) {
+        /* The stepper phases at rest: all off, their pins low. */
+        pin_set(PA, 10, FALSE);
+        pin_set(PA, 9, FALSE);
+        pin_set(PB, 0, FALSE);
+        pin_set(PA, 1, FALSE);
+    }
+#if TARGET == TARGET_multi
+    apple2_detect(200);
+    if (apple2_mode != apple2)
+        ft_abort(__FILE__, __LINE__, "Apple2 mode %s",
+                 apple2_mode ? "on" : "off");
 #endif
     floppy_init();
     floppy_set_cyl(0, 0);

@@ -263,27 +263,28 @@ static void print_fdd(void)
     unsigned int in = emu_in_fdd, cyl, side;
     const char *image;
     char ph[5], kept[5];
-    int sel;
+    int apple2, sel;
 
-    if (FFEMU_APPLE2)
-        printf("fdd: %s %s, phases %s, kept %s\n",
+    if (emu_fdd_type == EMU_FDD_TYPE_apple2)
+        printf("fdd: apple2, %s %s, phases %s, kept %s\n",
                (in & EMU_FDD_SEL) ? "DE" : "de",
                (in & EMU_FDD_WRITE) ? "WRQ" : "wrq",
                ui_fdd_phase_text(in, ph),
                ui_fdd_phase_text(ui_fdd_phases(), kept));
     else
-        printf("fdd: %s %s %s %s %s\n", (in & EMU_FDD_SEL) ? "DS" : "ds",
+        printf("fdd: step-dir, %s %s %s %s %s\n",
+               (in & EMU_FDD_SEL) ? "DS" : "ds",
                (in & EMU_FDD_MOTOR) ? "MO" : "mo",
                (in & EMU_FDD_WRITE) ? "WRG" : "wrg",
                (in & EMU_FDD_DIR) ? "DIR" : "dir",
                (in & EMU_FDD_SIDE) ? "SID" : "sid");
-    emu_fdd_status(&cyl, &side, &sel, &image);
-    if (FFEMU_APPLE2)
-        printf("drive: cyl %u, %senabled, floppy %s\n", cyl,
+    emu_fdd_status(&apple2, &cyl, &side, &sel, &image);
+    if (apple2)
+        printf("drive: apple2, cyl %u, %senabled, floppy %s\n", cyl,
                sel ? "" : "not ", image ? image : "none");
     else
-        printf("drive: cyl %u, side %u, %sselected, floppy %s\n", cyl, side,
-               sel ? "" : "not ", image ? image : "none");
+        printf("drive: step-dir, cyl %u, side %u, %sselected, floppy %s\n",
+               cyl, side, sel ? "" : "not ", image ? image : "none");
 }
 
 /* FF OSD as text: its rows between bars, each code as FF OSD draws it,
@@ -497,6 +498,24 @@ static void *script_thread(void *arg_sleep_ms)
                 continue;
             }
             ui_usb_set_fat16(!strcmp(arg, "fat16"));
+        } else if (sscanf(line, "fdd-type %63s", arg) == 1) {
+            for (i = 0; i < FDD_TYPE_nr; i++)
+                if (!strcmp(arg, fdd_type_name[i]))
+                    break;
+            if ((i == FDD_TYPE_nr)
+                || (FFEMU_APPLE2 && (i != EMU_FDD_TYPE_apple2))
+                || (!FFEMU_APPLE2 && !FFEMU_MULTI
+                    && (i != EMU_FDD_TYPE_step_dir))) {
+                fprintf(stderr, "ffemu: no such FDD type here: %s\n", arg);
+                continue;
+            }
+            /* As the dialog does: the device detects the type at boot. */
+            ui_fdd_set_type(i);
+            config.fdd_type = i;
+            rc_save();
+            fflush(NULL);
+            ui_action(KEY_ACT_reset);
+            park();
         } else if (!strcmp(line, "dump")) {
             dump_display();
         } else if (!strcmp(line, "osd")) {

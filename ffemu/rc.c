@@ -2,12 +2,12 @@
  * rc.c
  *
  * Settings, kept in ffemurc in ${XDG_CONFIG_HOME:-~/.config}/ffemu-shugart/
- * (or /ffemu-apple2/): lines of "name = value", a '#' starting a comment
- * line. The file is written with the defaults and a comment on each setting
- * when it does not exist, and a setting changed from the keyboard is written
- * back into it, other lines kept as they are. Its last section, [Flash mem],
- * mirrors the emulated flash memory, and is written anew whenever the flash
- * changes.
+ * (or /ffemu-apple2/, /ffemu-multi/): lines of "name = value", a '#'
+ * starting a comment line. The file is written with the defaults and a
+ * comment on each setting when it does not exist, and a setting changed from
+ * the keyboard is written back into it, other lines kept as they are. Its
+ * last section, [Flash mem], mirrors the emulated flash memory, and is
+ * written anew whenever the flash changes.
  *
  * This is free and unencumbered software released into the public domain.
  * See the file COPYING for more details, or visit <http://unlicense.org>.
@@ -44,7 +44,8 @@ static const char * const color_name[8] = {
 #define BRIGHT "bright-"
 
 enum { SET_style, SET_display_color, SET_hold_ms, SET_display, SET_lcd_rom,
-       SET_oled_8x16, SET_mcu, SET_osd, SET_osd_style, SET_usb_fat, SET_nr };
+       SET_oled_8x16, SET_mcu, SET_osd, SET_osd_style,
+       SET_fdd_type, SET_usb_fat, SET_nr };
 
 static const struct setting {
     const char *name, *comment;
@@ -90,6 +91,11 @@ static const struct setting {
         "osd-style",
         "How the OSD pane shows FF OSD: text, or braille where the window is "
         "wide enough. Key `." },
+    [SET_fdd_type] = {
+        "fdd-type",
+        "FDD type, the computer on the floppy cable: step-dir (Shugart, PC "
+        "and the like) or apple2 (stepper phases); the shugart firmware "
+        "takes step-dir only, the apple2 firmware apple2 only. Key 8." },
     [SET_usb_fat] = {
         "usb-fat",
         "File system of a USB drive made from a directory: fat32, or fat16 "
@@ -130,6 +136,9 @@ static const char *value_of(int set, char *buf, size_t size)
         break;
     case SET_osd_style:
         snprintf(buf, size, "%s", config.osd_braille ? "braille" : "text");
+        break;
+    case SET_fdd_type:
+        snprintf(buf, size, "%s", fdd_type_name[config.fdd_type]);
         break;
     case SET_usb_fat:
         snprintf(buf, size, "%s", config.usb_fat16 ? "fat16" : "fat32");
@@ -319,6 +328,14 @@ static bool parse_line(char *line)
             return false;
         config.osd_braille = !strcmp(value, "braille");
         return true;
+    case SET_fdd_type:
+        for (i = 0; i < FDD_TYPE_nr; i++) {
+            if (!strcmp(value, fdd_type_name[i])) {
+                config.fdd_type = i;
+                return true;
+            }
+        }
+        return false;
     case SET_usb_fat:
         if (strcmp(value, "fat32") && strcmp(value, "fat16"))
             return false;
@@ -642,6 +659,8 @@ void rc_load(void)
     config.osd_braille = false;
     config.display_color = 8 | 6; /* bright cyan */
     config.hold_ms = 150;
+    config.fdd_type = (FFEMU_APPLE2 || FFEMU_MULTI) ? EMU_FDD_TYPE_apple2
+        : EMU_FDD_TYPE_step_dir;
     config.usb_fat16 = false;
 
     if ((xdg != NULL) && (xdg[0] != '\0'))

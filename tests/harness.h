@@ -12,8 +12,17 @@
 
 #include "ft.h"
 
+/* Puts the firmware in Apple2 mode, or out of it, as the multi target's
+ * detection at boot does; a target without the choice must be in the mode
+ * asked for already. */
+#if TARGET == TARGET_multi
+#define set_apple2_mode(on) ((void)(apple2_mode = (on)))
+#else
+#define set_apple2_mode(on) REQUIRE(!(on) == !apple2_mode)
+#endif
+
 /* Empties the drive, a FAT16 volume, and resets the configuration to the
- * defaults of examples/FF.CFG. */
+ * defaults of examples/FF.CFG, Apple2 mode off where it can be. */
 void drive_reset(void);
 /* Adds a file of an 8.3 name to the root folder. */
 void drive_add(const char *name, const void *data, uint32_t len);
@@ -97,8 +106,9 @@ void irqs_run(void);
 void irq_raise(unsigned int x);
 extern unsigned int nr_speaker_pulses;
 
-/* The floppy code booted for the target's host, a Shugart host or an Apple2
- * host whose stepper phases are at rest, and the drive selected. */
+/* The floppy code booted for the host of the mode the firmware is in, a
+ * Shugart host or an Apple2 host whose stepper phases are at rest, and the
+ * drive selected. */
 void floppy_boot(void);
 /* Inserts a file of the drive into the floppy code: the disk passes its
  * index now, and every 200 ms after. */

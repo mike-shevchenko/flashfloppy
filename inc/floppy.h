@@ -18,16 +18,31 @@
 
 /* Apple2 mode: the host steps the head with four stepper phases in place of
  * STEP and DIR, WDATA toggles at each flux reversal, WRPROT is inverted, and
- * the images are the Apple2 ones. The apple2 target (and its bootloader) is
- * always in this mode. */
+ * the images are those of apple2_image_type[]. The apple2 target (and its
+ * bootloader) is always in this mode; the multi target detects it at boot,
+ * and serves a Shugart host otherwise. */
 #if (TARGET == TARGET_apple2) || defined(APPLE2_BOOTLOADER)
 #define apple2_mode TRUE
+#elif TARGET == TARGET_multi
+extern bool_t apple2_mode;
+/* Watches the phase inputs for @ms milliseconds, and sets apple2_mode if an
+ * Apple2 host is driving them. Takes the place of the 5v settle delay. */
+void apple2_detect(unsigned int ms);
 #else
 #define apple2_mode FALSE
 #endif
 
-/* The targets that have Apple2 mode. */
-#define TARGET_SUPPORTS_APPLE2 (TARGET == TARGET_apple2)
+/* The targets that have Apple2 mode: always, or as detected at boot. */
+#define TARGET_SUPPORTS_APPLE2 \
+    ((TARGET == TARGET_apple2) || (TARGET == TARGET_multi))
+
+/* Apple2 mode as detected at boot. What the multi target adds to the mode
+ * is left out of the apple2 target, which is always in it. */
+#if TARGET == TARGET_multi
+#define apple2_detected apple2_mode
+#else
+#define apple2_detected FALSE
+#endif
 
 #define WDATA_TOGGLE apple2_mode
 
@@ -259,6 +274,14 @@ extern const struct image_type {
 /* Whether @ext, NUL-ended, is the extension of image type @type. */
 bool_t image_type_is(const struct image_type *type, const char *ext);
 
+/* The types served in Apple2 mode: a list of the multi target's own, or
+ * all of image_type[] in the apple2 target. */
+#if TARGET == TARGET_multi
+extern const struct image_type apple2_image_type[];
+#else
+#define apple2_image_type image_type
+#endif
+
 /* Is given file valid to open as an image? */
 bool_t image_valid(FILINFO *fp);
 #if TARGET_SUPPORTS_APPLE2
@@ -332,8 +355,9 @@ static inline unsigned int im_nphys_cyls(struct image *im)
 }
 static inline bool_t in_da_mode(struct image *im, unsigned int cyl)
 {
-#if TARGET == TARGET_shugart
-    return cyl >= max_t(unsigned int, DA_FIRST_CYL, im_nphys_cyls(im));
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
+    return !apple2_mode
+        && (cyl >= max_t(unsigned int, DA_FIRST_CYL, im_nphys_cyls(im)));
 #else
     return FALSE;
 #endif
