@@ -552,8 +552,6 @@ TEST(apple2_write_flux)
     CHECK_MEM(got, disk, 35*DSK_TRK);
 }
 
-#if TARGET == TARGET_multi /* the multi target's image checks */
-
 /* Which files Apple2 mode lists, by size alone. */
 TEST(apple2_listed_sizes)
 {
@@ -600,8 +598,6 @@ TEST(apple2_listed_sizes)
     image_log_hidden();
     CHECK(log_has("image(s) hidden by size"));
 }
-
-#endif
 
 /*
  * HFE: an image whose header names an encoding that does not suit the mode
@@ -650,8 +646,6 @@ static uint32_t make_hfe(uint8_t *hfe, uint8_t encoding, bool_t gcr)
     return 1024 + ((len + 255) / 256) * 512;
 }
 
-#if TARGET == TARGET_multi /* the multi target's image checks */
-
 TEST(apple2_hfe_encodings)
 {
     static const uint8_t encodings[5] = { 0x00, 0x02, 0x06, 0x07, 0xff };
@@ -661,7 +655,8 @@ TEST(apple2_hfe_encodings)
     make_nib62();
     make_disk(disk, 35);
     make_track(want, disk, 0, dos_order, 0);
-    for (mode = 0; mode < 2; mode++) {
+    /* Shugart mode, then Apple2 mode, or Apple2 mode alone. */
+    for (mode = (TARGET == TARGET_multi) ? 0 : 1; mode < 2; mode++) {
         for (i = 0; i < ARRAY_SIZE(encodings); i++) {
             bool_t gcr_enc = (encodings[i] == 6) || (encodings[i] == 7);
             bool_t ok = (encodings[i] == 0xff) || (gcr_enc == mode);
@@ -684,11 +679,13 @@ TEST(apple2_hfe_encodings)
 
     /* Unknown encoding: served, the bits of track 0 noted when they look
      * like the other kind. */
+#if TARGET == TARGET_multi
     drive_reset();
     len = make_hfe(file, 0xff, TRUE);
     drive_add("GCR.HFE", file, len);
     REQUIRE(image_mount("GCR.HFE") == FR_OK);
     CHECK(log_has("HFE: looks GCR"));
+#endif
 
     drive_reset();
     set_apple2_mode(TRUE);
@@ -697,8 +694,6 @@ TEST(apple2_hfe_encodings)
     REQUIRE(image_mount("MFM.HFE") == FR_OK);
     CHECK(log_has("HFE: looks non-GCR"));
 }
-
-#endif
 
 /*
  * Positions: the floppy code starts a track where the disk has turned to,
