@@ -28,11 +28,13 @@ static unsigned int track(void)
 #if TARGET_SUPPORTS_APPLE2
 
 /* The stepper phases on, bits 0 to 3, on their pins: phase 0 on PA10, 1 on
- * PA9, 2 on PB0 and 3 on PA1; active high. */
-static void set_phases(unsigned int pha)
+ * PA9 (on PB4, the SIDE pin, in the wiring of firmware 307), 2 on PB0 and 3
+ * on PA1; active high. A pin of the other wiring is left unconnected. */
+static void set_phases(unsigned int pha, bool_t fw307)
 {
     pin_set(PA, 10, pha & 1);
-    pin_set(PA, 9, pha & 2);
+    pin_set(PA, 9, fw307 ? TRUE : !!(pha & 2));
+    pin_set(PB, 4, fw307 ? !!(pha & 2) : TRUE);
     pin_set(PB, 0, pha & 4);
     pin_set(PA, 1, pha & 8);
 }
@@ -50,7 +52,7 @@ TEST(floppy_detect_apple2_at_rest)
 {
     drive_reset();
     board_reset();
-    set_phases(0);
+    set_phases(0, FALSE);
     apple2_detect(200);
     CHECK(apple2_mode);
     CHECK(log_has("Apple2 on (200/200/200/200 200ms)"));
@@ -61,7 +63,7 @@ TEST(floppy_detect_apple2_one_phase_on)
 {
     drive_reset();
     board_reset();
-    set_phases(1);
+    set_phases(1, FALSE);
     apple2_detect(200);
     CHECK(apple2_mode);
     CHECK(log_has("Apple2 on (0/200/200/200 200ms)"));
@@ -73,7 +75,7 @@ TEST(floppy_detect_apple2_phases_0_1_on)
 {
     drive_reset();
     board_reset();
-    set_phases(3);
+    set_phases(3, FALSE);
     apple2_detect(200);
     CHECK(apple2_mode);
     CHECK(log_has("Apple2 on (0/0/200/200 200ms)"));
@@ -83,7 +85,7 @@ TEST(floppy_detect_apple2_phases_1_2_on)
 {
     drive_reset();
     board_reset();
-    set_phases(6);
+    set_phases(6, FALSE);
     apple2_detect(200);
     CHECK(apple2_mode);
     CHECK(log_has("Apple2 on (200/0/0/200 200ms)"));
@@ -116,7 +118,7 @@ TEST(floppy_detect_shugart_jc_strapped)
 /* A host seeking during the window, a millisecond in each state. */
 static void seeking(time_t now)
 {
-    set_phases(seek_states[(now / time_ms(1)) % 8]);
+    set_phases(seek_states[(now / time_ms(1)) % 8], FALSE);
 }
 
 TEST(floppy_detect_apple2_seeking)
@@ -129,11 +131,22 @@ TEST(floppy_detect_apple2_seeking)
     CHECK(apple2_mode);
 }
 
+TEST(floppy_detect_apple2_fw307)
+{
+    drive_reset();
+    board_reset();
+    set_phases(0, TRUE);
+    apple2_detect(200);
+    CHECK(apple2_mode);
+    CHECK(log_has("Apple2 on (fw307)"));
+}
+
 #endif
 
 #if TARGET_SUPPORTS_APPLE2
 
 static unsigned int seek_state; /* in seek_states[], even: one phase on */
+static bool_t wiring_fw307;
 
 static void seek(int halftracks)
 {
@@ -141,16 +154,17 @@ static void seek(int halftracks)
 
     for (i = 0; i < 2*n; i++) {
         seek_state = (seek_state + ((halftracks > 0) ? 1 : 7)) % 8;
-        set_phases(seek_states[seek_state]);
+        set_phases(seek_states[seek_state], wiring_fw307);
         clock_run_ms(5);
     }
 }
 
-static void apple2_boot(void)
+static void apple2_boot(bool_t fw307)
 {
     drive_reset();
     board_reset();
-    set_phases(0);
+    wiring_fw307 = fw307;
+    set_phases(0, fw307);
 #if TARGET == TARGET_multi
     apple2_detect(200);
 #endif
@@ -160,13 +174,13 @@ static void apple2_boot(void)
     pin_set(PA, 0, FALSE); /* selected */
     /* Phase 0 on, the head at track 0, so that the steps start from it. */
     seek_state = 0;
-    set_phases(seek_states[0]);
+    set_phases(seek_states[0], fw307);
     clock_run_ms(5);
 }
 
 TEST(floppy_apple2_steps)
 {
-    apple2_boot();
+    apple2_boot(FALSE);
     seek(6);
     CHECK_EQ(track(), 3);
     CHECK_EQ(nr_speaker_pulses, 6);
@@ -179,6 +193,20 @@ TEST(floppy_apple2_steps)
     CHECK_EQ(track(), 0);
     CHECK_EQ(nr_speaker_pulses, 12);
 }
+
+#if TARGET == TARGET_multi /* the 307 wiring */
+
+/* In the 307 wiring, phase 1 is on the SIDE pin. */
+TEST(floppy_apple2_steps_fw307)
+{
+    apple2_boot(TRUE);
+    seek(4);
+    CHECK_EQ(track(), 2);
+    seek(-2);
+    CHECK_EQ(track(), 1);
+}
+
+#endif
 
 #endif
 
