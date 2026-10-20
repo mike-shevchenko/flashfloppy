@@ -311,6 +311,32 @@ static void dump_osd(void)
     }
 }
 
+/* FF OSD as text: its rows between bars, each code as FF OSD draws it,
+ * 0x7F as the checkerboard that its glyph is, in UTF-8. */
+static void dump_osd(void)
+{
+    struct osd_view v;
+    unsigned int x, y, n;
+    char row[OSD_MAX_COLS * 3 + 1];
+
+    osd_get_view(&v);
+    if (!v.present) {
+        printf("osd: none\n");
+        return;
+    }
+    printf("osd: %ux%u %s heights=%x updates=%u\n", v.cols, v.rows,
+           v.on ? "on" : "off", v.heights, v.nr_updates);
+    for (y = 0; y < v.rows; y++) {
+        for (x = n = 0; x < v.cols; x++) {
+            uint8_t c = v.text[y][x];
+            n += utf8(row + n, !v.on ? ' ' : (c == 0x7f) ? 0x2592
+                      : ((c < 0x20) || (c > 0x7f)) ? ' ' : c);
+        }
+        row[n] = '\0';
+        printf("|%s|\n", row);
+    }
+}
+
 static void print_status(void)
 {
     static uint8_t px[OLED_W * OLED_MAX_H];
