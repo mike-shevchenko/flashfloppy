@@ -2000,10 +2000,12 @@ static void draw_display_dialog(void)
               dialog_focus == DF_synth, "Made from 6x13, bold");
     put(y + DISP_nr + LCD_ROM_nr + 8, x + 3, w - 4, COLOR_PAIR(CP_dialog),
         "%s", "Changing the display restarts the device.");
-    /* OK is the default while the focus is on no button. */
-    button(y + h - 4, x + 10,
+    /* OK is the default while the focus is on no button. Both are at the
+     * bottom right, as in Turbo Pascal's dialogs, Cancel's shadow at the
+     * clusters' right edge, two columns between OK's shadow and Cancel. */
+    button(y + h - 4, x + w - 23,
            button_face(dialog_focus == DF_ok, dialog_focus < DF_ok), "  OK  ");
-    button(y + h - 4, x + w - 10 - 10,
+    button(y + h - 4, x + w - 14,
            button_face(dialog_focus == DF_cancel, false), "  Cancel  ");
     if (dialog_focus == DF_rom)
         put(y + h - 2, x + 2, w - 3, COLOR_PAIR(CP_dlg_help), "%s",
@@ -2032,8 +2034,10 @@ static void draw_fdd_type_dialog(void)
     }
     put(y + 5, x + 3, w - 4, COLOR_PAIR(CP_dialog), "%s",
         "Changing the FDD type restarts the device.");
-    button(y + 7, x + 18, button_attr(0), "  OK  ");
-    button(y + 7, x + w - 18 - 10, button_attr(1), "  Cancel  ");
+    /* At the bottom right, as in Turbo Pascal's dialogs, Cancel's shadow at
+     * the clusters' right edge, two columns between OK's shadow and Cancel. */
+    button(y + 7, x + w - 23, button_attr(0), "  OK  ");
+    button(y + 7, x + w - 14, button_attr(1), "  Cancel  ");
 }
 
 /* The configuration in flash when the display changed, which may not suit
@@ -3031,8 +3035,9 @@ static void fd_layout(void)
             h = col_y[v->col];
     }
     fd_h = h + 5;
-    /* OK and Cancel at the bottom, the others one over another at the
-     * right, among the controls, below the third column's fields. */
+    /* The Save and Unpack buttons one over another at the right, among the
+     * controls, below the third column's fields; OK and Cancel under them,
+     * at the bottom right, as in Turbo Pascal's dialogs. */
     n = fd_h - 2 * FD_BUTTONS;
     if (n < col_y[2]) {
         fd_h += col_y[2] - n;
@@ -3044,8 +3049,10 @@ static void fd_layout(void)
             fd_w - 3 - strlen(fd_button_text(FV_save_nondefault));
     }
     fviews[FD_NR - 2].y = fviews[FD_NR - 1].y = fd_h - 4;
-    fviews[FD_NR - 2].x = fd_w / 2 - 14;
-    fviews[FD_NR - 1].x = fd_w / 2 + 4;
+    fviews[FD_NR - 1].x = fd_w - 3 - strlen(fd_button_text(FV_cancel));
+    /* Two columns between OK's shadow and Cancel. */
+    fviews[FD_NR - 2].x = fviews[FD_NR - 1].x - 3
+        - strlen(fd_button_text(FV_ok));
 }
 
 /* Sets the dialog up from configuration @cfg, the values of its options
