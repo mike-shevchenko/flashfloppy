@@ -1010,6 +1010,17 @@ static uint16_t parse_display_order(const char *p)
     return order;
 }
 
+/* Ends the item that starts at @p at the next @sep, or at the end of the
+ * list, and returns the start of the next item. */
+static char *next_item(char *p, char sep)
+{
+    while (*p && (*p != sep))
+        p++;
+    if (*p)
+        *p++ = '\0';
+    return p;
+}
+
 static void read_ff_cfg(void)
 {
     enum {
@@ -1183,10 +1194,7 @@ static void read_ff_cfg(void)
             char *p, *q;
             ff_cfg.twobutton_action = TWOBUTTON_zero;
             for (p = opts.arg; *p != '\0'; p = q) {
-                for (q = p; *q && *q != ','; q++)
-                    continue;
-                if (*q == ',')
-                    *q++ = '\0';
+                q = next_item(p, ',');
                 if (!strcmp(p, "reverse")) {
                     ff_cfg.twobutton_action |= TWOBUTTON_reverse;
                 } else {
@@ -1205,10 +1213,7 @@ static void read_ff_cfg(void)
             char *p, *q;
             ff_cfg.rotary = ROT_full;
             for (p = opts.arg; *p != '\0'; p = q) {
-                for (q = p; *q && *q != ','; q++)
-                    continue;
-                if (*q == ',')
-                    *q++ = '\0';
+                q = next_item(p, ',');
                 if (!strcmp(p, "reverse")) {
                     ff_cfg.rotary |= ROT_reverse;
                 } else if (!strcmp(p, "v2")) {
@@ -1239,10 +1244,7 @@ static void read_ff_cfg(void)
             char *p, *q, *r;
             ff_cfg.display_type = DISPLAY_auto;
             for (p = opts.arg; *p != '\0'; p = q) {
-                for (q = p; *q && *q != '-'; q++)
-                    continue;
-                if (*q == '-')
-                    *q++ = '\0';
+                q = next_item(p, '-');
                 if (!strcmp(p, "lcd")) {
                     ff_cfg.display_type = DISPLAY_lcd;
                 } else if (!strcmp(p, "oled")) {
@@ -1364,10 +1366,7 @@ static void read_ff_cfg(void)
             char *p, *q;
             ff_cfg.notify_volume = 0;
             for (p = opts.arg; *p != '\0'; p = q) {
-                for (q = p; *q && *q != ','; q++)
-                    continue;
-                if (*q == ',')
-                    *q++ = '\0';
+                q = next_item(p, ',');
                 if (!strcmp(p, "slotnr")) {
                     ff_cfg.notify_volume |= NOTIFY_slotnr;
                 } else {
