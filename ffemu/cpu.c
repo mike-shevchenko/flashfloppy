@@ -40,6 +40,7 @@ volatile unsigned int emu_out_speaker;
 /* Set up by ui_fdd_set_type() once the settings say what the computer is. */
 volatile unsigned int emu_in_fdd;
 volatile unsigned int emu_in_step;
+volatile int emu_mcu;
 volatile int emu_fdd_type;
 volatile int emu_oled_synth_8x16;
 

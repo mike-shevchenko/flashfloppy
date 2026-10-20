@@ -113,6 +113,13 @@ extern volatile unsigned int emu_in_step;
 #define EMU_FDD_TYPE_apple2   1
 extern volatile int emu_fdd_type;
 
+/* The MCU whose display driver the firmware runs: the board is the AT32F415
+ * one, whose MCU shares the STM32F105's code, but for the display, which
+ * the AT32F435's driver may run through that MCU's I2C instead. */
+#define EMU_MCU_at32f415 0
+#define EMU_MCU_at32f435 1
+extern volatile int emu_mcu;
+
 /* The OLED's 8x16 font made from the 6x13 one, as the firmware built with
  * oled_font_8x16_synth=y draws it: the display driver's
  * OLED_FONT_8x16_SYNTH. */
