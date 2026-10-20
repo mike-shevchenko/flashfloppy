@@ -148,6 +148,12 @@ static bool_t apple2_size_valid(const struct image_handler *handler,
 #define apple2_size_valid(handler, size) TRUE
 #endif
 
+bool_t image_type_is(const struct image_type *type, const char *ext)
+{
+    return !strncmp(ext, type->ext, sizeof(type->ext))
+        && (strlen(ext) <= sizeof(type->ext));
+}
+
 bool_t image_valid(FILINFO *fp)
 {
     char ext[8];
@@ -170,7 +176,7 @@ bool_t image_valid(FILINFO *fp)
         const struct image_type *type = apple2_mode
             ? &apple2_image_type[0] : &image_type[0];
         for (; type->handler != NULL; type++) {
-            if (strcmp(ext, type->ext))
+            if (!image_type_is(type, ext))
                 continue;
             if (apple2_mode && !apple2_size_valid(type->handler, fp->fsize)) {
                 image_nr_hidden++;
@@ -236,7 +242,7 @@ void image_open(struct image *im, struct slot *slot, DWORD *cltbl)
     if (apple2_mode) {
         /* The Apple2 formats are told apart by extension alone. */
         for (type = &apple2_image_type[0]; type->handler != NULL; type++)
-            if (!strcmp(ext, type->ext)
+            if (image_type_is(type, ext)
                 && try_handler(im, slot, cltbl, type->handler))
                 return;
         F_die(FR_BAD_IMAGE);
@@ -299,7 +305,7 @@ void image_open(struct image *im, struct slot *slot, DWORD *cltbl)
 
     /* Apple2 image types are distinguished by extension alone. */
     for (type = &image_type[0]; type->handler != NULL; type++)
-        if (!strcmp(ext, type->ext)
+        if (image_type_is(type, ext)
             && try_handler(im, slot, cltbl, type->handler))
             return;
 
