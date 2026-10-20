@@ -34,11 +34,13 @@ prod-%: FORCE
 	$(MAKE) target mcu=$* target=bl_update level=prod
 	$(MAKE) target mcu=$* target=io_test level=prod
 
+# No STM32F105 multi image at the debug level for now: features come first,
+# its flash is nearly full, and dist ships no debug image.
 debug-%: FORCE
 	$(MAKE) target mcu=$* target=bootloader level=debug
 	$(MAKE) target mcu=$* target=shugart level=debug
 	$(MAKE) target mcu=$* target=apple2 level=debug
-	$(MAKE) target mcu=$* target=multi level=debug
+	$(if $(filter-out stm32f105,$*),$(MAKE) target mcu=$* target=multi level=debug)
 	$(MAKE) target mcu=$* target=quickdisk level=debug
 	$(MAKE) target mcu=$* target=bl_update level=debug
 	$(MAKE) target mcu=$* target=io_test level=debug
