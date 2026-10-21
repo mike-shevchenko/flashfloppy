@@ -60,11 +60,46 @@ TEST(floppy_detect_apple2_one_phase_on)
     CHECK(log_has("Apple2 on (0/200/200/200 200ms)"));
 }
 
+/* A host stopped on a half track holds two phases on: 0 and 1 leave only
+ * phases 2 and 3 low, STEP among them, which a Shugart host never holds. */
+TEST(floppy_detect_apple2_phases_0_1_on)
+{
+    drive_reset();
+    board_reset();
+    set_phases(3, FALSE);
+    apple2_detect(200);
+    CHECK(apple2_mode);
+    CHECK(log_has("Apple2 on (0/0/200/200 200ms)"));
+}
+
+TEST(floppy_detect_apple2_phases_1_2_on)
+{
+    drive_reset();
+    board_reset();
+    set_phases(6, FALSE);
+    apple2_detect(200);
+    CHECK(apple2_mode);
+    CHECK(log_has("Apple2 on (200/0/0/200 200ms)"));
+}
+
 /* A Shugart host leaves the phase pins high but for DIR, PB0. */
 TEST(floppy_detect_shugart)
 {
     drive_reset();
     board_reset();
+    pin_set(PB, 0, FALSE);
+    apple2_detect(200);
+    CHECK(!apple2_mode);
+    CHECK(log_has("Apple2 off"));
+}
+
+/* On QFN32 the JC strap holds PA9 low: with DIR, two phase inputs low,
+ * neither of them STEP, which is still a Shugart host. */
+TEST(floppy_detect_shugart_jc_strapped)
+{
+    drive_reset();
+    board_reset();
+    pin_set(PA, 9, FALSE);
     pin_set(PB, 0, FALSE);
     apple2_detect(200);
     CHECK(!apple2_mode);

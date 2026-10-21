@@ -212,10 +212,13 @@ bool_t apple2_mode;
  * the JC strap and the KC30 Select button. So we are on an Apple2 if at
  * least three of the four phase inputs are low in at least a quarter of
  * the samples: a host at rest may hold one phase on, and a Shugart host
- * leaves at most DIR low. The 307 wiring, where supported, is counted too,
- * on the standard boards only (on the enhanced ones PB14 is the SD card's
- * MISO), and the wiring with more inputs low is taken, the standard one on
- * a tie: the 307 wiring leaves PA9 unconnected, so a host at rest has three
+ * leaves at most DIR low. Or if phase 3's input is, STEP in either wiring,
+ * which a Shugart host never holds low: a host stopped on a half track
+ * holds two phases on, and of the pairs of them, 0 and 1 and 1 and 2 leave
+ * STEP low. The 307 wiring, where supported, is counted too, on the
+ * standard boards only (on the enhanced ones PB14 is the SD card's MISO),
+ * and the wiring with more inputs low is taken, the standard one on a tie:
+ * the 307 wiring leaves PA9 unconnected, so a host at rest has three
  * inputs low in the standard wiring and four in its own. */
 void apple2_detect(unsigned int ms)
 {
@@ -244,11 +247,11 @@ void apple2_detect(unsigned int ms)
             chosen = set;
         }
     }
-    apple2_mode = (best >= 3);
+    low = lows[chosen];
+    apple2_mode = (best >= 3) || (low[3] >= ms/4);
 #if APPLE2_FW307
     apple2_alt_pins = (chosen == 1);
 #endif
-    low = lows[chosen];
 
 #if LEVEL == LEVEL_debug
     /* Phases 0 and 1 are on the KC30 rotary pins: no encoder then. */
