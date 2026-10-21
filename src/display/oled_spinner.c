@@ -2,8 +2,8 @@
  * oled_spinner.c
  *
  * The stepper phase spinner of the Apple2 mode on the OLED, included by
- * each display driver, whose text row converters draw it for a character
- * OLED_SPINNER plus the phases on.
+ * lcd_common.c, whose text row converters and the drivers' draw it for a
+ * character OLED_SPINNER plus the phases on.
  *
  * Written & released by Mike Shevchenko <mike.shevchenko.kz@gmail.com>
  *

@@ -158,7 +158,7 @@ static int dialog_display;
 static int dialog_lcd_rom, dialog_focus;
 static bool dialog_oled_synth;
 enum { DF_display, DF_rom, DF_synth, DF_ok, DF_cancel, DF_nr };
-/* The Display type dialog's labels, by the control each names, '~' around
+/* The Display type dialog's labels, by the control each names, `~` around
  * the letter that moves the focus to it. */
 static const char * const df_label[DF_nr] = {
     [DF_display] = "~D~isplay",
@@ -1382,8 +1382,8 @@ static void draw_keys(int y, int x, int w)
     fdd_panel(y + 5, x + 1, w - 1);
     y += 8;
 
-    /* The latch key lights up while its mode lasts. The + between the keys
-     * of a combination is not a key itself. */
+    /* The latch key lights up while its mode lasts. The `+` between the
+     * keys of a combination is not a key itself. */
     for (i = 0; i < ARRAY_SIZE(device_keys); i++) {
         int act = device_keys[i].act, n = strlen(key_label[act]) + 1, j;
         const char *k = key_label[act];

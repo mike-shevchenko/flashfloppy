@@ -3,8 +3,6 @@ CC = $(TOOL_PREFIX)gcc
 OBJCOPY = $(TOOL_PREFIX)objcopy
 LD = $(TOOL_PREFIX)ld
 
-PYTHON = python3
-
 ifneq ($(VERBOSE),1)
 TOOL_PREFIX := @$(TOOL_PREFIX)
 endif
@@ -27,10 +25,7 @@ FLAGS += -mcpu=cortex-m3
 ifeq ($(target),apple2-bootloader)
 override target=bootloader
 FLAGS += -DAPPLE2_BOOTLOADER=1
-endif
-
-# And the update that installs it in place of the standard bootloader.
-ifeq ($(target),apple2-bl_update)
+else ifeq ($(target),apple2-bl_update)
 override target=bl_update
 FLAGS += -DAPPLE2_BOOTLOADER=1
 endif

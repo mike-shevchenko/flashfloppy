@@ -19,7 +19,7 @@
  * See the file COPYING for more details, or visit <http://unlicense.org>.
  */
 
-/* Reflash the main bootloader (first 32kB). */
+/* Bootloader-update firmware: Reflashes the main bootloader. */
 #if MCU == MCU_stm32f105
 #define FIRMWARE_START 0x08000000
 #define FIRMWARE_END   0x08008000
@@ -28,13 +28,13 @@
 #define FIRMWARE_END   0x0800c000
 #endif
 
-/* The update payload: the bootloader, or the Apple2 one, which knows that
- * QFN32 pin PA10 is reassigned. */
+/* The update payload. */
 #ifdef APPLE2_BOOTLOADER
 #define BOOTLOADER_BIN "../apple2-bootloader/target.bin"
 #else
 #define BOOTLOADER_BIN "../bootloader/target.bin"
 #endif
+
 extern char update_start[], update_end[];
 asm (
 "    .section .rodata\n"

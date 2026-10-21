@@ -4,7 +4,8 @@ VER := $(shell git rev-parse --short HEAD)
 
 export FW_VER := $(VER)
 
-PYTHON := python3
+export PYTHON ?= $(firstword $(foreach p,python3 python py,$(if \
+    $(shell command -v $(p) 2>/dev/null),$(p))))
 
 export ROOT := $(CURDIR)
 
@@ -154,8 +155,9 @@ _dist_apple2_at2_bootloader: FORCE
 	cd $(OUT)/stm32f105/prod/apple2-bootloader; \
 	  cp -a target.dfu $(f)/$(n).dfu; \
 	  cp -a target.hex $(f)/$(n).hex
-	$(PYTHON) $(ROOT)/scripts/mk_update.py new $(f)/$(n).upd \
-	  $(OUT)/stm32f105/prod/apple2-bl_update/target.bin stm32f105
+	$(PYTHON) $(ROOT)/scripts/mk_update.py old \
+	  $(f)/FF_Gotek-apple2-at2-bootloader-$(VER).upd \
+	  $(OUT)/stm32f105/prod/apple2-bl_update/target.bin
 
 dist: level := prod
 dist: t := $(OUT)/$(PROJ)-$(VER)

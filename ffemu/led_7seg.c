@@ -304,7 +304,7 @@ void led_text(const struct led_view *v, char *buf, size_t size)
 
 void led_art(const struct led_view *v, char art[3][16])
 {
-    /* Where each segment, a to g and the point, is drawn in a digit's
+    /* Where each segment, `a` to `g` and the point, is drawn in a digit's
      * cells, three rows of four columns. */
     static const struct { uint8_t row, col; char c; } cell[8] = {
         { 0, 1, '_' }, { 1, 2, '|' }, { 2, 2, '|' }, { 2, 1, '_' },
