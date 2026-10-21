@@ -52,6 +52,7 @@ FW_SRCS += image/da.c image/dummy.c image/mfm.c image/apple2.c
 FW_SRCS += floppy.c
 TEST_SRCS := harness.c floppy_env.c
 TEST_SRCS += test_apple2.c test_floppy.c test_flux.c
+TEST_SRCS += test_logfile.c
 ifeq ($(TARGET),multi)
 TEST_SRCS += test_img.c test_util.c
 endif
