@@ -246,14 +246,16 @@ static void display_write_slot(bool_t nav_mode)
     if (slot_type("v9t9")) {
         snprintf(typename, sizeof(typename), "T99");
     } else if (!(cfg.slot.attributes & AM_DIR)) {
+        char ext[8];
+        filename_extension(cfg.slot.name, ext, sizeof(ext));
         type = apple2_mode ? &apple2_image_type[0] : &image_type[0];
         for (; type->handler != NULL; type++)
-            if (slot_type(type->ext))
+            if (image_type_is(type, ext)
+                || image_type_is(type, cfg.slot.type))
                 break;
         if (type->handler != NULL) {
-            snprintf(typename, sizeof(typename), "%s", type->ext);
-            for (i = 0; i < sizeof(typename); i++)
-                typename[i] = toupper(typename[i]);
+            for (i = 0; i < sizeof(typename) - 1; i++)
+                typename[i] = toupper(type->ext[i]);
         }
     }
 
@@ -2289,6 +2291,9 @@ static int run_floppy(void *_b)
         t_prev = t_now;
     }
 
+    if (display_type == DT_LED_7SEG)
+        display_state = LED_NORMAL;
+
     return 0;
 }
 
@@ -2858,9 +2863,6 @@ static int floppy_main(void *unused)
             floppy_arena_teardown();
             speaker_notify_insert(cfg.slot_nr);
             fres = F_call_cancellable(run_floppy, &b);
-            /* Also when the call was cancelled, as a pulled USB drive does. */
-            if (display_type == DT_LED_7SEG)
-                display_state = LED_NORMAL;
             floppy_cancel();
             speaker_notify_eject();
             assert_volume_connected();
