@@ -131,6 +131,10 @@ void emu_irq_vector(unsigned int nr);
 const char *emu_board_name(void);
 const char *emu_fw_version(void);
 const char *emu_fw_target(void);
+/* Whether the firmware has detected at boot which host is on the cable, so
+ * that the mode emu_fdd_status() gives is the one it found; always for a
+ * firmware without that detection. */
+int emu_fdd_detected(void);
 /* The drive as the firmware sees it: whether the firmware is in its Apple2
  * mode, the cylinder of the head, the side, whether it is selected, and the
  * image mounted, or NULL. */
