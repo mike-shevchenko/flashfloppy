@@ -1041,13 +1041,35 @@ struct volume_ops usb_ops = {
 
 /*
  * Floppy interface: the firmware's own src/floppy.c, with what it includes,
- * runs against the models of hw.c. ffemu renames three of its functions when
+ * runs against the models of hw.c. ffemu renames some of its functions when
  * building it, and wraps them here.
  */
 
 bool_t fw_floppy_handle(void);
 void fw_floppy_insert(unsigned int unit, struct slot *slot);
 void fw_floppy_cancel(void);
+
+#if TARGET == TARGET_multi
+void fw_apple2_detect(unsigned int ms);
+static volatile bool_t fdd_detected;
+
+/* The firmware's detection of the host at boot, noted as done. */
+void apple2_detect(unsigned int ms)
+{
+    fw_apple2_detect(ms);
+    fdd_detected = TRUE;
+}
+
+int emu_fdd_detected(void)
+{
+    return fdd_detected;
+}
+#else
+int emu_fdd_detected(void)
+{
+    return TRUE;
+}
+#endif
 
 /* The image mounted, for the Status window; "" if none. */
 static char image_name[64];
