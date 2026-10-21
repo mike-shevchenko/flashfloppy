@@ -175,7 +175,8 @@ $(OUT)/fw/floppy.o: $(ROOT)/src/floppy.c
 	$(Q)$(CC) $(FW_CFLAGS) -c $< -o $@
 	$(Q)$(OBJCOPY) --redefine-sym floppy_handle=fw_floppy_handle \
 	    --redefine-sym floppy_insert=fw_floppy_insert \
-	    --redefine-sym floppy_cancel=fw_floppy_cancel $@
+	    --redefine-sym floppy_cancel=fw_floppy_cancel \
+	    --redefine-sym apple2_detect=fw_apple2_detect $@
 
 $(OUT)/emu/%.o: $(EMU)/%.c
 	@echo CC ffemu/$*.c
