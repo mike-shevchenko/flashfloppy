@@ -276,6 +276,9 @@ extern const struct image_type {
     const struct image_handler *handler;
 } image_type[];
 
+/* Whether @ext, NUL-ended, is the extension of image type @type. */
+bool_t image_type_is(const struct image_type *type, const char *ext);
+
 /* The types served in Apple2 mode: a list of the multi target's own, or
  * all of image_type[] in the apple2 target. */
 #if TARGET == TARGET_multi
@@ -284,15 +287,11 @@ extern const struct image_type apple2_image_type[];
 #define apple2_image_type image_type
 #endif
 
-/* Whether @ext, NUL-ended, is the extension of image type @type. */
-bool_t image_type_is(const struct image_type *type, const char *ext);
-
 /* Is given file valid to open as an image? */
 bool_t image_valid(FILINFO *fp);
-/* Counts the files it refused by size in Apple2 mode; logged and cleared
- * at the end of a folder scan. */
-extern unsigned int image_nr_hidden;
 #if TARGET_SUPPORTS_APPLE2
+/* Logs and clears the count of the files image_valid() refused by size, at
+ * the end of a folder scan. */
 void image_log_hidden(void);
 #else
 #define image_log_hidden() ((void)0)
