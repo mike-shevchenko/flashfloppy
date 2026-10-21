@@ -3801,6 +3801,34 @@ static void check_flash_dump(void)
     pending = now;
 }
 
+/* A warning, once the firmware has detected at boot which host is on the
+ * cable, if that is not the FDD type: the firmware then serves the other
+ * kind of host, as on a Gotek, until a power cycle with the signals at rest. */
+static void check_fdd_type(void)
+{
+    static bool checked;
+    unsigned int cyl, side;
+    const char *image;
+    int apple2, sel;
+
+    if (!FFEMU_MULTI || checked || !emu_fdd_detected())
+        return;
+    checked = true;
+    emu_fdd_status(&apple2, &cyl, &side, &sel, &image);
+    if (!apple2 == (emu_fdd_type != EMU_FDD_TYPE_apple2))
+        return;
+    show_message((dialog == DLG_message) ? msg_return : dialog, "FDD type",
+                 apple2 ? "The FDD type is Step/Dir, but at power-on the "
+                 "firmware took the host for an Apple2 and serves it in "
+                 "Apple2 mode. Power-cycle with Home, the host's signals at "
+                 "rest"
+                 : "The FDD type is Apple2, but at power-on the firmware took "
+                 "the host for a Step/Dir one and serves it in Shugart mode: "
+                 "the stepper phases left on, as 3 and 0 after a step, held "
+                 "too few of its inputs low. Release them with \\ and "
+                 "power-cycle with Home");
+}
+
 static void draw_fdfile_dialog(void)
 {
     const char *head = fdf_writable
@@ -4635,6 +4663,7 @@ static void *tui_thread(void *unused)
 
         ui_poll();
         check_flash_dump();
+        check_fdd_type();
         /* Each step of the spinner is written to the terminal: when two in a
          * row fail, the terminal has gone with no hangup signal, as a
          * terminal window does when its process is killed. */
