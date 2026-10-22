@@ -26,6 +26,26 @@ Here is [the original FlashFloppy readme on GitHub](https://github.com/keirf/fla
 - **Unit tests** of the image handlers and of the floppy code, built and run on a PC by the plain `make`, in `tests/`.
 
 ---------------------------------------------------------------------------------------------------
+## What this fork has that upstream lacks
+
+### Kept on purpose, refused upstream
+
+- **The version on 7-segment displays laid out at build time**, without decimal points: on 3 digits the letter part, such as `m1`, in one frame and dashes where a number leaves a digit free (` 3-`, `-44`), on 2 digits the `m` drawn across both. Offered as [#1084](https://github.com/keirf/flashfloppy/pull/1084); upstream chose its own, simpler change, [display: Improve printing of FF version number on 7-seg displays](https://github.com/keirf/flashfloppy/commit/f838a608).
+- **Link-time optimization (LTO) in the STM32F105/AT32F415 logfile and debug builds**, which frees several hundred bytes where room is shortest, room the fork's own features need. Offered in [#1098](https://github.com/keirf/flashfloppy/pull/1098); upstream does not want LTO ("I don't want LTO"). It is in the branch `lto` until it is tested on a board with a host, not in a release yet.
+
+### Not upstream yet, offered or waiting
+
+Some of these are not in a release yet: they come with the next one.
+
+- **The multi firmware**, described above, with its Apple2 images and both wirings of the phases. Its pull request follows once upstream has taken the smaller ones it builds on.
+- **The open pull requests**, and others once opened:
+  - [#1090](https://github.com/keirf/flashfloppy/pull/1090): the stepper phases on the displays of the apple2 firmware;
+  - [#1096](https://github.com/keirf/flashfloppy/pull/1096): tracks past 99 shown as `FF`, `++` or underlined digits on displays of 16 columns or fewer, instead of 99;
+  - [#1102](https://github.com/keirf/flashfloppy/pull/1102): no stray hyphen beside the error code when the first image of a session fails to mount;
+  - [#1103](https://github.com/keirf/flashfloppy/pull/1103): each image type opened by a function that returns its handler, which frees some 350 bytes of flash in the main firmware.
+- **ffemu extras**, such as the Windows pack, which runs the three programs in a bundled terminal with nothing else to install, and a USB drive made from a directory as FAT16.
+
+---------------------------------------------------------------------------------------------------
 ## Installing
 
 Connect the pins marked by the same labels on the diagrams below with Dupont wires or jumpers. The connections are valid for all of the Apple2, Shugart (e.g. TR-DOS) and IBM PC modes.
