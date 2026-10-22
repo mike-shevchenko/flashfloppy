@@ -41,12 +41,7 @@ Some of these are not in a release yet: they come with the next one.
 - **The open pull requests**, and others once opened:
   - [#1090](https://github.com/keirf/flashfloppy/pull/1090): the stepper phases on the displays of the apple2 firmware;
   - [#1096](https://github.com/keirf/flashfloppy/pull/1096): tracks past 99 shown as `FF`, `++` or underlined digits on displays of 16 columns or fewer, instead of 99;
-  - [#1102](https://github.com/keirf/flashfloppy/pull/1102): no stray hyphen beside the error code when the first image of a session fails to mount;
-  - [#1103](https://github.com/keirf/flashfloppy/pull/1103): each image type opened by a function that returns its handler, which frees some 350 bytes of flash in the main firmware;
-  - [#1104](https://github.com/keirf/flashfloppy/pull/1104): no lost steps of the rotary encoder on a KC30 header, whose WGATE interrupt could preempt the button timer that decodes it;
-  - [#1105](https://github.com/keirf/flashfloppy/pull/1105): TRK0 asserted only at cylinder 0 when Direct Access mode sets the cylinder;
-  - [#1106](https://github.com/keirf/flashfloppy/pull/1106): a button press that comes just as the track shown on a 7-segment display times out is kept;
-  - [#1107](https://github.com/keirf/flashfloppy/pull/1107): logging goes on after writing FFLOG.TXT fails, such as on a full drive.
+  - [#1104](https://github.com/keirf/flashfloppy/pull/1104): no lost steps of the rotary encoder on a KC30 header, whose WGATE interrupt could preempt the button timer that decodes it.
 - **ffemu extras**, such as the Windows pack, which runs the three programs in a bundled terminal with nothing else to install, and a USB drive made from a directory as FAT16.
 
 ---------------------------------------------------------------------------------------------------
