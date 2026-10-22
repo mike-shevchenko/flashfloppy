@@ -52,6 +52,7 @@ FW_SRCS += image/da.c image/dummy.c image/mfm.c image/apple2.c
 FW_SRCS += floppy.c
 TEST_SRCS := harness.c floppy_env.c
 TEST_SRCS += test_apple2.c test_floppy.c test_flux.c
+TEST_SRCS += test_logfile.c
 ifeq ($(TARGET),multi)
 TEST_SRCS += test_img.c test_util.c
 endif
@@ -75,6 +76,7 @@ FW_CFLAGS += -include $(EMU)/decls.h
 # and the detection of the host; the apple2 target the Apple2 mode alone.
 FW_CFLAGS += -DMCU=MCU_stm32f105 -DTARGET=TARGET_$(TARGET) -DLEVEL=LEVEL_debug
 FW_CFLAGS += -MMD -MP $(EXTRA_CFLAGS)
+FW_CFLAGS += -ftrivial-auto-var-init=pattern
 
 HOST_CFLAGS := -std=gnu11 -O1 -g -Wall -Werror -MMD -MP $(EXTRA_CFLAGS)
 HOST_CFLAGS += -DFT_NAME='"$(NAME)"'

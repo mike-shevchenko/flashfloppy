@@ -249,11 +249,11 @@ static void display_write_slot(bool_t nav_mode)
         char ext[8];
         filename_extension(cfg.slot.name, ext, sizeof(ext));
         type = apple2_mode ? &apple2_image_type[0] : &image_type[0];
-        for (; type->handler != NULL; type++)
+        for (; type->open != NULL; type++)
             if (image_type_is(type, ext)
                 || image_type_is(type, cfg.slot.type))
                 break;
-        if (type->handler != NULL) {
+        if (type->open != NULL) {
             for (i = 0; i < sizeof(typename) - 1; i++)
                 typename[i] = toupper(type->ext[i]);
         }
@@ -370,8 +370,8 @@ static void led_7seg_update_track(bool_t force)
             display_write_slot(FALSE);
         showing_track = FALSE;
         active_countdown = 0;
-        if (display_state == LED_TRACK)
-            display_state = LED_TRACK_QUIESCENT;
+        /* Atomic: Avoids racing a button press that changes the state. */
+        cmpxchg(&display_state, LED_TRACK, LED_TRACK_QUIESCENT);
         return;
     }
 
@@ -2753,7 +2753,7 @@ static void folder_menu(void)
 static int floppy_main(void *unused)
 {
     FRESULT fres;
-    uint8_t b;
+    uint8_t b = 0;
     uint32_t i;
     bool_t exited_empty_folder = FALSE;
 
