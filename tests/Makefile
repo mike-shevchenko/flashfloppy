@@ -76,6 +76,7 @@ FW_CFLAGS += -include $(EMU)/decls.h
 # and the detection of the host; the apple2 target the Apple2 mode alone.
 FW_CFLAGS += -DMCU=MCU_stm32f105 -DTARGET=TARGET_$(TARGET) -DLEVEL=LEVEL_debug
 FW_CFLAGS += -MMD -MP $(EXTRA_CFLAGS)
+FW_CFLAGS += -ftrivial-auto-var-init=pattern
 
 HOST_CFLAGS := -std=gnu11 -O1 -g -Wall -Werror -MMD -MP $(EXTRA_CFLAGS)
 HOST_CFLAGS += -DFT_NAME='"$(NAME)"'
