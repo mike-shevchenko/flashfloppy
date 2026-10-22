@@ -40,8 +40,7 @@ Some of these are not in a release yet: they come with the next one.
 - **The multi firmware**, described above, with its Apple2 images and both wirings of the phases. Its pull request follows once upstream has taken the smaller ones it builds on.
 - **The open pull requests**, and others once opened:
   - [#1090](https://github.com/keirf/flashfloppy/pull/1090): the stepper phases on the displays of the apple2 firmware;
-  - [#1096](https://github.com/keirf/flashfloppy/pull/1096): tracks past 99 shown as `FF`, `++` or underlined digits on displays of 16 columns or fewer, instead of 99;
-  - [#1108](https://github.com/keirf/flashfloppy/pull/1108): `floppy_main()`'s `fres` given a value before a session that starts ejected reads it, which lets GCC 12 build ffemu and the tests.
+  - [#1096](https://github.com/keirf/flashfloppy/pull/1096): tracks past 99 shown as `FF`, `++` or underlined digits on displays of 16 columns or fewer, instead of 99.
 - **ffemu extras**, such as the Windows pack, which runs the three programs in a bundled terminal with nothing else to install, and a USB drive made from a directory as FAT16.
 
 ---------------------------------------------------------------------------------------------------
