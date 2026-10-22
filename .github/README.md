@@ -41,7 +41,7 @@ Some of these are not in a release yet: they come with the next one.
 - **The open pull requests**, and others once opened:
   - [#1090](https://github.com/keirf/flashfloppy/pull/1090): the stepper phases on the displays of the apple2 firmware;
   - [#1096](https://github.com/keirf/flashfloppy/pull/1096): tracks past 99 shown as `FF`, `++` or underlined digits on displays of 16 columns or fewer, instead of 99;
-  - [#1104](https://github.com/keirf/flashfloppy/pull/1104): no lost steps of the rotary encoder on a KC30 header, whose WGATE interrupt could preempt the button timer that decodes it.
+  - [#1108](https://github.com/keirf/flashfloppy/pull/1108): `floppy_main()`'s `fres` given a value before a session that starts ejected reads it, which lets GCC 12 build ffemu and the tests.
 - **ffemu extras**, such as the Windows pack, which runs the three programs in a bundled terminal with nothing else to install, and a USB drive made from a directory as FAT16.
 
 ---------------------------------------------------------------------------------------------------
