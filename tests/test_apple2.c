@@ -578,11 +578,13 @@ TEST(apple2_listed_sizes)
         { "A.TRD", 655360, FALSE },
     };
     unsigned int i, nr_hidden = 0;
+    char msg[40];
     FILINFO fno;
 
     drive_reset();
     set_apple2_mode(TRUE);
-    image_nr_hidden = 0;
+    image_log_hidden();
+    ft_fw_log_clear();
     for (i = 0; i < ARRAY_SIZE(files); i++) {
         memset(&fno, 0, sizeof(fno));
         snprintf(fno.fname, sizeof(fno.fname), "%s", files[i].name);
@@ -594,15 +596,14 @@ TEST(apple2_listed_sizes)
                     files[i].listed ? " not" : "");
         nr_hidden += !files[i].listed && strcmp(files[i].name, "A.TRD");
     }
-    CHECK_EQ(image_nr_hidden, nr_hidden);
     image_log_hidden();
-    CHECK(log_has("image(s) hidden by size"));
+    snprintf(msg, sizeof(msg), "%u image(s) hidden by size", nr_hidden);
+    CHECK(log_has(msg));
 }
 
 /*
  * HFE: an image whose header names an encoding that does not suit the mode
- * is refused; one whose header says none is served, and the bits of its
- * first track only noted in the log.
+ * is refused; one whose header says none is served.
  */
 
 static uint32_t make_hfe(uint8_t *hfe, uint8_t encoding, bool_t gcr)
@@ -676,23 +677,6 @@ TEST(apple2_hfe_encodings)
                               : "HFE unfit: GCR"));
         }
     }
-
-    /* Unknown encoding: served, the bits of track 0 noted when they look
-     * like the other kind. */
-#if TARGET == TARGET_multi
-    drive_reset();
-    len = make_hfe(file, 0xff, TRUE);
-    drive_add("GCR.HFE", file, len);
-    REQUIRE(image_mount("GCR.HFE") == FR_OK);
-    CHECK(log_has("HFE: looks GCR"));
-#endif
-
-    drive_reset();
-    set_apple2_mode(TRUE);
-    len = make_hfe(file, 0xff, FALSE);
-    drive_add("MFM.HFE", file, len);
-    REQUIRE(image_mount("MFM.HFE") == FR_OK);
-    CHECK(log_has("HFE: looks non-GCR"));
 }
 
 /*

@@ -114,14 +114,10 @@ const struct image_type image_type[] = {
 
 #endif
 
-
-/* An Apple2 disk has at most 40 tracks on one side, which an HFE holds in
- * well under this; a larger one is a disk of another kind. */
-#define HFE_APPLE2_MAX (1280*1024)
-
-unsigned int image_nr_hidden;
-
 #if TARGET_SUPPORTS_APPLE2
+
+static unsigned int image_nr_hidden;
+
 void image_log_hidden(void)
 {
     if (image_nr_hidden != 0)
@@ -129,23 +125,30 @@ void image_log_hidden(void)
     image_nr_hidden = 0;
 }
 
-/* Whether an image of an Apple2 format can hold the one side of 35 to 40
- * tracks an Apple2 disk has, told by its size alone, which costs no file
- * access during a folder scan. A sector image has 16 sectors of 256 bytes
- * per track; one of the Agat may end in a 128-byte trailer naming the
- * disk. */
-static bool_t apple2_size_valid(const struct image_handler *handler,
-                                uint32_t size)
+static bool_t image_is_hidden(const struct image_handler *handler,
+                              uint32_t size)
 {
-    if (handler == &hfe_image_handler)
-        return size <= HFE_APPLE2_MAX;
-    if (handler == &a2dsk_image_handler)
-        return !((size % 4096) & ~128u)
+    bool_t ok = TRUE;
+    if (handler == &hfe_image_handler) {
+        /* An Apple2 disk has at most 40 tracks on one side, which an HFE holds
+         * in well under this; a larger one is a disk of another kind. */
+        ok = size <= 1280*1024;
+    } else if (handler == &a2dsk_image_handler) {
+        /* Can this image hold the one side of 35 to 40 tracks an Apple2 disk
+         * has? A sector image has 16 sectors of 256 bytes per track; one of
+         * the Agat may end in a 128-byte trailer naming the disk. */
+        ok = !((size % 4096) & ~128u)
             && (size / 4096 >= 35) && (size / 4096 <= 40);
-    return TRUE;
+    }
+    if (!ok)
+        image_nr_hidden++;
+    return !ok;
 }
+
 #else
-#define apple2_size_valid(handler, size) TRUE
+
+#define image_is_hidden(handler, size) FALSE
+
 #endif
 
 bool_t image_type_is(const struct image_type *type, const char *ext)
@@ -168,22 +171,16 @@ bool_t image_valid(FILINFO *fp)
 
     /* Check valid extension. */
     filename_extension(fp->fname, ext, sizeof(ext));
-    if (!apple2_mode
-        && ((TARGET == TARGET_shugart) || (TARGET == TARGET_multi))
-        && !strcmp(ext, "adf")) {
+    if (((TARGET == TARGET_shugart) || (TARGET == TARGET_multi))
+        && !apple2_mode && !strcmp(ext, "adf")) {
         return (ff_cfg.host == HOST_acorn) || !(fp->fsize % (2*11*512));
     } else {
         const struct image_type *type = apple2_mode
             ? &apple2_image_type[0] : &image_type[0];
-        for (; type->handler != NULL; type++) {
-            if (!image_type_is(type, ext))
-                continue;
-            if (apple2_mode && !apple2_size_valid(type->handler, fp->fsize)) {
-                image_nr_hidden++;
-                return FALSE;
-            }
-            return TRUE;
-        }
+        for (; type->handler != NULL; type++)
+            if (image_type_is(type, ext))
+                return !apple2_mode
+                    || !image_is_hidden(type->handler, fp->fsize);
     }
 
     return FALSE;
@@ -240,7 +237,7 @@ void image_open(struct image *im, struct slot *slot, DWORD *cltbl)
     ext[sizeof(slot->type)] = '\0';
 
     if (apple2_mode) {
-        /* The Apple2 formats are told apart by extension alone. */
+        /* Apple2 image types are distinguished by extension alone. */
         for (type = &apple2_image_type[0]; type->handler != NULL; type++)
             if (image_type_is(type, ext)
                 && try_handler(im, slot, cltbl, type->handler))
