@@ -98,7 +98,7 @@ const struct image_type image_type[] = {
 
 #endif
 
-#if TARGET == TARGET_apple2
+#if TARGET_SUPPORTS_APPLE2
 
 static unsigned int image_nr_hidden;
 

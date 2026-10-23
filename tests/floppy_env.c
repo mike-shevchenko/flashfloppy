@@ -186,7 +186,7 @@ void irqs_run(void)
         case 12: IRQ_12(); break;
         case 13: IRQ_13(); break;
         case 23: IRQ_23(); break;
-#if TARGET == TARGET_apple2
+#if TARGET_SUPPORTS_APPLE2
         case 27: IRQ_27(); break; /* TMR1_CC: WDATA */
 #else
         case 28: IRQ_28(); break; /* TIM2: STEP */
