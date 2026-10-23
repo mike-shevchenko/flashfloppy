@@ -273,7 +273,9 @@ static void oled_double_height(uint8_t *dst, uint8_t *src, uint8_t mask)
     }
 }
 
-static int oled_to_lcd_row(int in_row)
+/* Renders the 16 pixel rows @in_row of the display into buffer[], its top and
+ * bottom pages: a text row, or half of a double-height one. */
+static void oled_to_lcd_row(int in_row)
 {
     uint16_t order;
     int i = 0, row;
@@ -299,7 +301,8 @@ static int oled_to_lcd_row(int in_row)
         memset(buffer, 0, 256);
     }
 
-    return large ? i - in_row : 0;
+    if (large)
+        oled_double_height(buffer, &buffer[(i - in_row == 1) ? 128 : 0], 0x3);
 }
 
 /*
