@@ -2843,7 +2843,7 @@ static struct fview {
       "Whether to show floppy filename extensions",
       { "no", "yes", "auto" }, false, true },
     { FV_input, 0, "~d~isplay-order", "display-order",
-      "Rows top down: 0=name, 1=status, 2=info, 3=folder, 7=blank, "
+      "0=name 1=status 2=info 3=folder 4=name&status 7=blank, "
       "d=double-height", { NULL }, false, false },
     { FV_input, 0, "display-~o~ff-secs", "display-off-secs",
       "Seconds without activity before the display goes dark, 0-255: 0 is "

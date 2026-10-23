@@ -79,7 +79,7 @@ def run(name, commands, settings=(), flash=(), ffemurc=None, files=None,
     """Runs program @name on @commands, then quits it. Its settings are the
     lines @settings, then a [Flash mem] section of the lines @flash if any,
     unless @ffemurc gives the whole file; its USB drive is a folder holding
-    @files, a dict of names and contents."""
+    @files, a dict of paths and contents, their folders made as needed."""
     if name == "ffemu": name = "ffemu-shugart"
     with tempfile.TemporaryDirectory(prefix="ffemu-test-") as tmp:
         config = os.path.join(tmp, "config")
@@ -95,7 +95,9 @@ def run(name, commands, settings=(), flash=(), ffemurc=None, files=None,
         drive = os.path.join(tmp, "drive")
         os.makedirs(drive)
         for fname, data in (files or {}).items():
-            with open(os.path.join(drive, fname), "wb") as f:
+            path = os.path.join(drive, fname)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
                 f.write(data if isinstance(data, bytes) else data.encode())
         env = dict(
             os.environ, XDG_CONFIG_HOME=config,
