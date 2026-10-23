@@ -275,12 +275,56 @@ static void display_write_slot(bool_t nav_mode)
     lcd_on();
 }
 
+/* The track info that the status row shows. */
+static struct track_info lcd_ti;
+
+/* The track in short into @s: the side, then @mode and the track. */
+static void track_short(char *s, const struct track_info *ti, char mode)
+{
+    *s++ = '0' + ti->side;
+    snprintf(s, 5, "%c%02u", mode, ti->cyl);
+}
+
+/* Writes track info @ti to the status row, @mode for the drive's state: `T`,
+ * `W` while writing, `*` for a write-protected image, `-` for a button press.
+ * In short, the track at the row's right; else after the image's number,
+ * @mode, a blank for `T`, "T:", the track and the side. */
+static void lcd_write_track(const struct track_info *ti, char mode)
+{
+    char msg[lcd_columns+1], s[12];
+    unsigned int n = lcd_columns - 7;
+
+    if (apple2_mode) {
+        /* The phase spinner, two cells, then the phases on as "0..3" with
+         * dots for those off, then the track after @mode. An LCD, which has
+         * no glyph for the spinner, gets a blank, and on 16 columns the cell
+         * spared as a blank before @mode. */
+        char ph[5];
+        unsigned int i;
+        for (i = 0; i < 4; i++)
+            ph[i] = (ti->phases & (1u<<i)) ? '0'+i : '.';
+        ph[4] = '\0';
+        snprintf(msg, sizeof(msg),
+                 (lcd_columns > 16) ? " %c %s %c:%02u"
+                 : is_oled_display ? "%c %s%c%02u" : "%c%s %c%02u",
+                 is_oled_display ? OLED_SPINNER | ti->phases : ' ', ph,
+                 mode, ti->cyl);
+        lcd_write(wp_column, 1, -1, msg);
+    } else if (ff_cfg.show_tracks_short) {
+        track_short(s, ti, mode);
+        snprintf(msg, sizeof(msg), "%*s%s", n - strlen(s), "", s);
+        lcd_write(7, 1, -1, msg);
+    } else {
+        snprintf(msg, sizeof(msg), "%c T:%02u.%u",
+                 (mode == 'T') ? ' ' : mode, ti->cyl, ti->side);
+        lcd_write(wp_column, 1, -1, msg);
+    }
+}
+
 /* Write track number to LCD. */
 static void lcd_write_track_info(bool_t force)
 {
-    static struct track_info lcd_ti;
     struct track_info ti;
-    char msg[17];
 
     if (display_type != DT_LCD_OLED)
         return;
@@ -292,27 +336,8 @@ static void lcd_write_track_info(bool_t force)
         || ((ti.side != lcd_ti.side) && ti.sel)
         || (ti.writing != lcd_ti.writing)
         || (TARGET_SUPPORTS_APPLE2 && (ti.phases != lcd_ti.phases))) {
-        char wp = (cfg.slot.attributes & AM_RDO) ? '*' : ti.writing ? 'W' : ' ';
-        if (apple2_mode) {
-            /* The phase spinner, two cells, then the phases on as "0..3"
-             * with dots for those off, then the track after `T`, or after
-             * `W` while writing and `*` when write protected. An LCD, which
-             * has no glyph for the spinner, gets a blank, and on 16 columns
-             * the cell spared as a blank before `T`. */
-            char ph[5];
-            unsigned int i;
-            for (i = 0; i < 4; i++)
-                ph[i] = (ti.phases & (1u<<i)) ? '0'+i : '.';
-            ph[4] = '\0';
-            snprintf(msg, sizeof(msg),
-                     (lcd_columns > 16) ? " %c %s %c:%02u"
-                     : is_oled_display ? "%c %s%c%02u" : "%c%s %c%02u",
-                     is_oled_display ? OLED_SPINNER | ti.phases : ' ', ph,
-                     (wp == ' ') ? 'T' : wp, ti.cyl);
-        } else {
-            snprintf(msg, sizeof(msg), "%c T:%02u.%u", wp, ti.cyl, ti.side);
-        }
-        lcd_write(wp_column, 1, -1, msg);
+        lcd_write_track(&ti, (cfg.slot.attributes & AM_RDO) ? '*'
+                        : ti.writing ? 'W' : 'T');
         if (ff_cfg.display_on_activity != DISPON_no)
             lcd_on();
         lcd_ti = ti;
@@ -1311,6 +1336,10 @@ static void read_ff_cfg(void)
                                                       "no\0sel\0")];
             break;
         }
+
+        case FFCFG_show_tracks_short:
+            ff_cfg.show_tracks_short = yes;
+            break;
 
         case FFCFG_show_filename_ext:
             ff_cfg.show_filename_ext =
@@ -2849,7 +2878,7 @@ static int floppy_main(void *unused)
             assert_volume_connected();
             if ((b != 0) && (display_type == DT_LCD_OLED)) {
                 /* Immediate visual indication of button press. */
-                lcd_write(wp_column, 1, 1, "-");
+                lcd_write_track(&lcd_ti, '-');
                 lcd_on();
             }
             floppy_arena_setup();
