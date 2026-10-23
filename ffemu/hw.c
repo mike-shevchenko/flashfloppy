@@ -87,7 +87,7 @@ void emu_irq_vector(unsigned int nr)
         (emu_mcu == EMU_MCU_at32f435) ? at435_IRQ_34() : IRQ_34();
         break;
     case 40: IRQ_40(); break; /* EXTI15_10 */
-#if TARGET == TARGET_apple2
+#if TARGET_SUPPORTS_APPLE2
     case 27: IRQ_27(); break; /* TIM1 capture: WDATA */
 #else
     case 28: IRQ_28(); break; /* TIM2: STEP */
