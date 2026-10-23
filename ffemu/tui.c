@@ -2959,6 +2959,10 @@ static struct fview {
       "Beep the floppy number when a floppy is inserted: long beeps count as "
       "5, short - as 1",
       { "slotnr" }, false, true },
+    { FV_check, 2, NULL, "show-tracks-short",
+      "Whether the status row shows the side and track in short, at its "
+      "right: 0T17",
+      { "show-trac~k~s-short" }, true, true },
     { FV_save_all, 0, NULL, NULL,
       "Write all options to FF.CFG on the USB drive as shown, old one kept "
       "as .BAK; flash unchanged",
@@ -2996,7 +3000,7 @@ static const char * const fd_opts[] = {
     "nav-scroll-pause", "nav-mode", "folder-sort", "sort-priority",
     "nav-loop", "autoselect-file-secs", "autoselect-folder-secs",
     "indexed-prefix", "twobutton-action", "image-on-startup",
-    "ejected-on-startup", "notify-volume"
+    "ejected-on-startup", "notify-volume", "show-tracks-short"
 };
 static char fd_orig[ARRAY_SIZE(fd_opts)][64];
 

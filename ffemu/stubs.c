@@ -533,6 +533,7 @@ static bool_t parse_option(unsigned int i, struct ff_cfg *f, const char *text)
         break;
     case OPT_write_protect: case OPT_index_suppression:
     case OPT_ejected_on_startup: case OPT_nav_loop: case OPT_extend_image:
+    case OPT_show_tracks_short:
         k = LOOKUP(s, yes_no);
         break;
     case OPT_track_change: k = LOOKUP(s, track_change_name); break;
@@ -677,6 +678,7 @@ static unsigned int format_option(unsigned int i, const struct ff_cfg *f,
     case OPT_pin02: case OPT_pin34: name = NAMED(v, pin_name); break;
     case OPT_write_protect: case OPT_index_suppression:
     case OPT_ejected_on_startup: case OPT_nav_loop: case OPT_extend_image:
+    case OPT_show_tracks_short:
         name = NAMED(v, yes_no);
         break;
     case OPT_track_change: name = NAMED(v, track_change_name); break;
