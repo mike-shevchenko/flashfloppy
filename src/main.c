@@ -298,10 +298,10 @@ static void lcd_write_track_info(bool_t force)
         char wp = (cfg.slot.attributes & AM_RDO) ? '*' : ti.writing ? 'W' : ' ';
         if (apple2_mode) {
             /* The phase spinner, two cells, then the phases on as "0..3"
-             * with dots for those off, then the track after T, or after W
-             * while writing and * when write protected. An LCD, which has
-             * no glyph for the spinner, gets a blank, and on 16 columns
-             * the cell spared as a blank before T. */
+             * with dots for those off, then the track after `T`, or after
+             * `W` while writing and `*` when write protected. An LCD, which
+             * has no glyph for the spinner, gets a blank, and on 16 columns
+             * the cell spared as a blank before `T`. */
             char ph[5];
             unsigned int i;
             for (i = 0; i < 4; i++)
@@ -332,7 +332,7 @@ static void led_7seg_update_track(bool_t force)
 
     bool_t changed;
     struct track_info ti;
-    char msg[TARGET_SUPPORTS_APPLE2 ? 6 : 4];
+    char msg[4];
 
     if (display_type != DT_LED_7SEG)
         return;
@@ -379,9 +379,9 @@ static void led_7seg_update_track(bool_t force)
         const static char status[] = { 'k', 'm', 'v', 'w' };
         if (apple2_mode && (led_7seg_nr_digits() == 3)) {
             /* The stepper phases on as the four segments of the lower half
-             * of the first digit, phases 0 to 3 clockwise round its loop: d,
-             * e, g and c, so that a seek turns an arc, and its top segment,
-             * a, lit while writing. Then the track. */
+             * of the first digit, phases 0 to 3 clockwise round its loop:
+             * `d`, `e`, `g` and `c`, so that a seek turns an arc, and its top
+             * segment, `a`, lit while writing. Then the track. */
             unsigned int ph = ti.phases;
             snprintf(msg, sizeof(msg), "%c%02u",
                      0x80 | ((ph & 3) << 3) | ((ph & 4) << 4)
@@ -3180,7 +3180,8 @@ static void noinline banner(void)
 #elif TARGET == TARGET_quickdisk
             (led_7seg_nr_digits() == 3) ? "Q"sep_ch"D" : "QD"
 #else
-            apple2_detected ? ((led_7seg_nr_digits() == 3) ? "A"sep_ch"2" : "A2")
+            apple2_detected
+            ? ((led_7seg_nr_digits() == 3) ? "A"sep_ch"2" : "A2")
             : (led_7seg_nr_digits() == 3) ? "F"sep_ch"F" : "FF"
 #endif
             );
