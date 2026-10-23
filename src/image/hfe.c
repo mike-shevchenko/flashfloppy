@@ -120,6 +120,7 @@ const struct image_handler *hfe_open(struct image *im)
     /* Get an initial value for ticks per revolution. */
     hfe_seek_track(im, 0);
 
+#if TARGET_SUPPORTS_APPLE2
     if (apple2_mode) {
         /* An Apple2 host reads GCR and nothing else. An image whose header
          * names another encoding is refused rather than served as noise. */
@@ -132,7 +133,9 @@ const struct image_handler *hfe_open(struct image *im)
             printk("HFE unfit: non-GCR\n");
             return NULL;
         }
-    } else {
+    } else
+#endif
+    {
         /* A Shugart host reads anything *but* Apple II GCR. */
         switch (dhdr.track_encoding) {
         case ENC_AppleII_GCR1:
