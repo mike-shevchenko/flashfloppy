@@ -186,9 +186,11 @@ void irqs_run(void)
         case 12: IRQ_12(); break;
         case 13: IRQ_13(); break;
         case 23: IRQ_23(); break;
-        case 27: IRQ_27(); break;
+#if TARGET_SUPPORTS_APPLE2
+        case 27: IRQ_27(); break; /* TMR1_CC: WDATA */
+#endif
 #if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
-        case 28: IRQ_28(); break; /* TIM2: STEP, in Step/Dir mode */
+        case 28: IRQ_28(); break; /* TIM2: STEP */
 #endif
         case 40: IRQ_40(); break;
         case 43: IRQ_43(); break;
@@ -323,8 +325,10 @@ uint32_t arena_avail(void)
 /* When the image was inserted, which the floppy code takes as the index. */
 static time_t index_time;
 
-void floppy_boot(bool_t apple2)
+void floppy_boot(void)
 {
+    bool_t apple2 = apple2_mode;
+
     board_reset();
     if (apple2) {
         /* The stepper phases at rest: all off, their pins low. */
@@ -335,10 +339,10 @@ void floppy_boot(bool_t apple2)
     }
 #if TARGET == TARGET_multi
     apple2_detect(200);
-#endif
     if (apple2_mode != apple2)
         ft_abort(__FILE__, __LINE__, "Apple2 mode %s",
                  apple2_mode ? "on" : "off");
+#endif
     floppy_init();
     floppy_set_cyl(0, 0);
     pin_set(PA, 0, FALSE);
