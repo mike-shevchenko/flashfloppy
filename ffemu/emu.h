@@ -40,6 +40,12 @@ uint64_t emu_time_ns(void);
 /* Waits @ns, keeping the peripherals and the interrupts running. */
 void emu_idle_ns(uint64_t ns);
 void emu_relax(void);
+/* Notes a call of the firmware into the host half, which a loop that spins on
+ * a variable alone does not make. */
+void emu_fw_progress(void);
+/* Notes a read of SysTick by the firmware, which a virtual clock moves on:
+ * after the models have run at the time it had. */
+void emu_stk_read(void);
 /* Whether the caller is the thread that runs the peripheral models beside
  * the firmware's own. */
 int emu_on_hw_thread(void);
@@ -80,6 +86,11 @@ int emu_usb_write(const void *buf, uint32_t sector, unsigned int count);
 extern volatile unsigned int emu_in_buttons;
 /* Encoder detents not yet delivered: clockwise is positive. */
 extern volatile int emu_in_rotary;
+/* Whether the firmware's timers run on time now, which its reading of the
+ * encoder needs: always, but on a host whose sleeps are coarse only while
+ * ffemu spins for the user's input, which a call notes, a detent waiting
+ * being input. */
+int emu_timers_on_time(void);
 
 /* Floppy interface inputs from the host computer, written by the user
  * interface: a bit is set while its signal is active, as on the schematics,
@@ -89,6 +100,7 @@ extern volatile int emu_in_rotary;
 #define EMU_FDD_DIR   4  /* active: steps go inward, to higher tracks */
 #define EMU_FDD_SIDE  8
 #define EMU_FDD_PH0   16 /* Apple2 stepper phases 0 to 3: 16, 32, 64, 128 */
+#define EMU_FDD_WRITE 256 /* Shugart write gate, or Apple2 write request */
 extern volatile unsigned int emu_in_fdd;
 /* Counts the STEP pulses sent. */
 extern volatile unsigned int emu_in_step;
@@ -100,6 +112,13 @@ extern volatile unsigned int emu_in_step;
 #define EMU_FDD_TYPE_step_dir 0
 #define EMU_FDD_TYPE_apple2   1
 extern volatile int emu_fdd_type;
+
+/* The MCU whose display driver the firmware runs: the board is the AT32F415
+ * one, whose MCU shares the STM32F105's code, but for the display, which
+ * the AT32F435's driver may run through that MCU's I2C instead. */
+#define EMU_MCU_at32f415 0
+#define EMU_MCU_at32f435 1
+extern volatile int emu_mcu;
 
 /* The OLED's 8x16 font made from the 6x13 one, as the firmware built with
  * oled_font_8x16_synth=y draws it: the display driver's
@@ -125,6 +144,10 @@ void emu_hw_sync(void);
 void emu_hw_sync_bus(void);
 /* Whether the calling thread is in the middle of a sync. */
 int emu_hw_busy(void);
+/* When the next deadline of the models comes, as of the last sync, or 0 if
+ * none: the one-shot timer behind the firmware's timers, or the end of a DMA
+ * transfer on the I2C bus. */
+uint64_t emu_hw_due_ns(void);
 void emu_irq_vector(unsigned int nr);
 
 /* Facts about the emulated device, for the status pane (hw.c, stubs.c). */

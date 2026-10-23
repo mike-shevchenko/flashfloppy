@@ -1,12 +1,13 @@
 # Unit tests: firmware sources compiled for a PC, as ffemu compiles them,
-# driven against a USB drive in RAM.
+# driven against a USB drive in RAM, or against ffemu's drive made from a
+# directory.
 #
 # Usage: make -C tests [O=<path>] [TARGET=multi|apple2] [run | all | clean]
 #
-# The default, run, builds $(O)/out/fftest/fftest, the tests of the multi
-# firmware, or for TARGET=apple2 $(O)/out/fftest-apple2/fftest-apple2, those
-# of the apple2 firmware that apply to it, and runs it; it takes names of
-# tests to run, as in "make -C tests run T=img_pc". all builds it
+# The default, run, builds $(O)/out/tests/unit/$(TARGET)/fftest-$(TARGET),
+# the tests of the multi firmware, or for TARGET=apple2 those of the apple2
+# firmware that apply to it, and runs it; it takes names of tests to run, as
+# in "make -C tests run T=img_pc". all builds it
 # and runs it only when it has changed since the tests last passed, so that a
 # build that leaves it alone costs nothing and a failing test stops the
 # build. EXTRA_CFLAGS goes to every compile and to the link, as in
@@ -18,16 +19,10 @@ TESTS := $(ROOT)/tests
 EMU := $(ROOT)/ffemu
 
 TARGET ?= multi
-ifeq ($(TARGET),multi)
-NAME := fftest
-else ifeq ($(TARGET),apple2)
-NAME := fftest-apple2
-else
-$(error TARGET must be multi or apple2)
-endif
+NAME := fftest-$(TARGET)
 
 O ?= $(ROOT)
-OUT := $(abspath $(O))/out/$(NAME)
+OUT := $(abspath $(O))/out/tests/unit/$(TARGET)
 
 CC ?= cc
 
@@ -54,15 +49,17 @@ TEST_SRCS := harness.c floppy_env.c
 TEST_SRCS += test_apple2.c test_floppy.c test_flux.c
 TEST_SRCS += test_logfile.c
 ifeq ($(TARGET),multi)
-TEST_SRCS += test_img.c test_util.c
+TEST_SRCS += test_img.c test_util.c test_fatimg.c
 endif
 
-# The host half: the runner.
-HOST_SRCS := ft_main.c
+# The host half: the runner, and ffemu's drive made from a directory with
+# what it needs of the rest of ffemu.
+HOST_SRCS := ft_main.c dir_drive.c
 
 FW_OBJS := $(patsubst %.c,$(OUT)/fw/%.o,$(FW_SRCS))
 FW_OBJS += $(patsubst %.c,$(OUT)/test/%.o,$(TEST_SRCS))
 HOST_OBJS := $(patsubst %.c,$(OUT)/host/%.o,$(HOST_SRCS))
+HOST_OBJS += $(OUT)/host/fatimg.o
 
 # As in ffemu/Makefile.
 FW_CFLAGS := -std=gnu99 -O1 -g -funsigned-char -fno-builtin
@@ -118,6 +115,15 @@ $(OUT)/test/%.o: $(TESTS)/%.c
 
 $(OUT)/host/%.o: $(TESTS)/%.c
 	@echo CC tests/$*.c
+	@mkdir -p $(dir $@)
+	$(Q)$(CC) $(HOST_CFLAGS) -c $< -o $@
+
+# As ffemu/Makefile compiles its host half.
+$(OUT)/host/dir_drive.o $(OUT)/host/fatimg.o: \
+    HOST_CFLAGS += -O2 -D_GNU_SOURCE -iquote $(EMU)
+
+$(OUT)/host/fatimg.o: $(EMU)/fatimg.c
+	@echo CC ffemu/fatimg.c
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(HOST_CFLAGS) -c $< -o $@
 

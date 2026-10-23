@@ -12,6 +12,7 @@
 
 #include <ctype.h>
 #include <curses.h>
+#include <errno.h>
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
@@ -19,8 +20,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <wchar.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 
 #include "host.h"
@@ -105,6 +108,7 @@ enum {
     CP_lcd_stub,  /* bright magenta on the LCD: a character it lacks */
     CP_lcd_dot,   /* the LCD's unlit dots, faint, on its panel */
     CP_lcd_inkdot, /* the LCD's unlit dots on its ink */
+    CP_osd,       /* green on black, bright: FF OSD's text */
     CP_nr
 };
 
@@ -124,6 +128,14 @@ enum {
 #define STATUS_MIN_W 42
 #define PANE_ROWS 13
 
+/* FF OSD shows three rows at most, its field of the count being two bits
+ * wide; the OSD pane as text shows them in a frame. */
+#define OSD_ROWS_SHOWN 3
+#define OSD_TEXT_H (OSD_ROWS_SHOWN + 2)
+
+/* The key that switches the OSD pane between text and braille. */
+#define OSD_KEY '`'
+
 /* The letters that select the rendering styles, in their order. */
 #define STYLE_KEYS "qwe"
 
@@ -136,15 +148,16 @@ enum {
 /* The key that opens the dialog to edit the configuration in flash. */
 #define FLASH_KEY '9'
 
-/* The key that opens the dialog to choose the FDD type: the computer on the
- * cable. Only in the multi program, whose firmware detects it at boot. */
-#define FDD_TYPE_KEY '8'
+/* The key that opens the dialog to choose what the device is connected to:
+ * the computer on the cable, in the multi program only, whose firmware
+ * detects it at boot, the file system of a USB drive, and FF OSD. */
+#define EXTERNALS_KEY '8'
 
 /* The dialog on screen, if any, its highlighted button (0 is the first),
  * and the display or the FDD type that its dialog has selected. */
 static enum {
     DLG_none, DLG_quit, DLG_display, DLG_rows, DLG_flash, DLG_emul,
-    DLG_fdd_type, DLG_message, DLG_fdfile, DLG_unpack, DLG_write
+    DLG_externals, DLG_message, DLG_fdfile, DLG_unpack, DLG_write
 } dialog;
 /* The message box over a dialog: what it says, and the dialog it returns
  * to when closed. */
@@ -155,17 +168,30 @@ static int dialog_display;
 /* The Display type dialog's character ROM and 8x16 font, and its focus: the
  * displays, the ROMs, which only an LCD uses, the font's check box, which
  * only an OLED uses, OK and Cancel. */
-static int dialog_lcd_rom, dialog_focus;
+static int dialog_lcd_rom, dialog_mcu, dialog_focus;
 static bool dialog_oled_synth;
-enum { DF_display, DF_rom, DF_synth, DF_ok, DF_cancel, DF_nr };
+enum { DF_display, DF_rom, DF_synth, DF_mcu, DF_ok, DF_cancel, DF_nr };
 /* The Display type dialog's labels, by the control each names, `~` around
  * the letter that moves the focus to it. */
 static const char * const df_label[DF_nr] = {
     [DF_display] = "~D~isplay",
     [DF_rom] = "LCD character ~R~OM",
     [DF_synth] = "OLED 8x16 ~f~ont",
+    [DF_mcu] = "Display driver of ~M~CU",
 };
-static int dialog_fdd_type;
+/* The Externals dialog's FDD type, file system, 1 for FAT16, and whether
+ * FF OSD is fitted, and the places of its focus, the FDD types in the
+ * multi program only. */
+static int dialog_fdd_type, dialog_usb_fat;
+static bool dialog_osd;
+enum { EF_fdd, EF_fat, EF_osd, EF_ok, EF_cancel, EF_nr };
+/* The Externals dialog's labels, by the control each names, `~` around the
+ * letter that moves the focus to it. */
+static const char * const ef_label[EF_nr] = {
+    [EF_fdd] = "~F~DD type: the computer on the floppy cable",
+    [EF_fat] = "File ~s~ystem of a USB drive made from a directory",
+    [EF_osd] = "FF ~O~SD: the display's text over the host's video",
+};
 static void draw_dialog(void);
 static void draw_fdfile_dialog(void);
 static void draw_unpack_dialog(void);
@@ -765,6 +791,88 @@ static void draw_lcd(int y0, int x0, int fw, int style, bool too_small,
 }
 
 /*
+ * The OSD pane.
+ */
+
+/* The columns of FF OSD's frames of @v, the firmware sending no fewer than
+ * 16, which stand for them before it sends any. */
+static unsigned int osd_columns(const struct osd_view *v)
+{
+    return (v->cols < 16) ? 16 : v->cols;
+}
+
+/* Whether the OSD pane shows FF OSD's pixels of @v: when braille is chosen,
+ * the rest is not drawn in ASCII, and the window is wide enough for them,
+ * four cells a character. */
+static bool osd_braille(const struct osd_view *v)
+{
+    return config.osd_braille && !plain()
+        && (osd_columns(v) * 4 + 2 <= (unsigned)COLS);
+}
+
+/* The character that text shows for FF OSD's code @c: FF OSD has glyphs
+ * for 0x20 to 0x7F, the last a checkerboard, which ASCII has no character
+ * for, and draws any other code as a space. */
+static wchar_t osd_char(uint8_t c)
+{
+    if (c == 0x7f)
+        return plain() ? L'?' : 0x2592;
+    return ((c < 0x20) || (c > 0x7f)) ? L' ' : c;
+}
+
+/* The rows of braille that FF OSD's frame of @v takes: at least those of
+ * its three rows of text, so that the pane changes size only for double
+ * ones. */
+static int osd_braille_rows(const struct osd_view *v)
+{
+    unsigned int h = osd_height(v);
+
+    if (h < OSD_ROWS_SHOWN * 10 + 2)
+        h = OSD_ROWS_SHOWN * 10 + 2;
+    return (h + 3) / 4;
+}
+
+/* Draws FF OSD at (@y,@x), its frame @h rows tall and as wide as its
+ * columns need: its text in light green on black, or in @braille its
+ * pixels; with the key that switches them in the frame's bottom left
+ * corner, or that the window is too small for the braille chosen. */
+static void draw_osd(int y, int x, int h, bool braille,
+                     const struct osd_view *v)
+{
+    static uint8_t px[OSD_W * OSD_MAX_H];
+    attr_t attr = BRIGHT(CP_osd);
+    wchar_t line[OSD_MAX_COLS];
+    bool narrow = config.osd_braille && !braille && !plain();
+    char title[48], hint[32];
+    unsigned int r, c, n = osd_columns(v);
+    int w = (braille ? 4 * n : n) + 2;
+
+    /* Within the 12 cells that the title of 16 columns has. */
+    if (v->on)
+        snprintf(title, sizeof(title), "FF OSD %ux%u", v->cols, v->rows);
+    else
+        snprintf(title, sizeof(title), "FF OSD off");
+    frame(y, x, w, h, title, attr, COLOR_PAIR(CP_dframe));
+    if (braille && v->on) {
+        osd_pixels(v, px, 8 * n, 4 * (h - 2));
+        draw_pixels(y + 1, x + 1, STYLE_braille, px, NULL, 8 * n,
+                    4 * (h - 2), attr);
+    } else if (v->on) {
+        for (r = 0; (r < OSD_ROWS_SHOWN) && ((int)r < h - 2); r++) {
+            for (c = 0; c < n; c++)
+                line[c] = ((r < v->rows) && (c < v->cols))
+                    ? osd_char(v->text[r][c]) : L' ';
+            put_wide(y + 1 + r, x + 1, attr, line, n);
+        }
+    }
+    snprintf(hint, sizeof(hint), " %c: %s ", OSD_KEY,
+             !narrow ? (braille ? "Braille" : "Text")
+             : (w >= 25) ? "Window too small" : "Too small");
+    put(y + h - 1, x + 2, strlen(hint),
+        narrow ? BRIGHT(CP_note) : COLOR_PAIR(CP_dframe), "%s", hint);
+}
+
+/*
  * The status window.
  */
 
@@ -984,7 +1092,8 @@ static void draw_status(int y, int x, int w)
             c = piece(y, c, x + w, green, "%u", usb.nr_dirs);
             c = piece(y, c, x + w, gray, " dir%s",
                       (usb.nr_dirs == 1) ? "" : "s");
-            if (usb.nr_skipped || usb.nr_case_dups) {
+            if (usb.nr_skipped || usb.nr_case_dups || usb.nr_root_full
+                || usb.nr_drive_full) {
                 c = piece(y, c, x + w, gray, ", ");
                 c = piece(y, c, x + w, green, "some left out");
             }
@@ -1077,6 +1186,8 @@ static int ctrl_key(const char *cap, const char *seq, int code)
 
 /* The first line that the Flash mem window shows: PgUp and PgDn move it. */
 static int flash_top;
+/* The rows of options that Flash mem shows. */
+static int flash_rows = PANE_ROWS;
 
 /* The keys that page a window at (@x) of @w, at the right end of its bottom
  * frame @y: PgUp/PgDn, after modifier @mod and a '+' unless it is NULL.
@@ -1126,11 +1237,11 @@ static void draw_flash(int y, int x, int w)
     if (w < 12)
         return;
     if (len == 0) {
-        frame(y, x, w, PANE_ROWS + 2, "Flash mem - empty", COLOR_PAIR(CP_off),
+        frame(y, x, w, flash_rows + 2, "Flash mem - empty", COLOR_PAIR(CP_off),
               COLOR_PAIR(CP_off));
         return;
     }
-    frame(y, x, w, PANE_ROWS + 2, "Flash mem", COLOR_PAIR(CP_text),
+    frame(y, x, w, flash_rows + 2, "Flash mem", COLOR_PAIR(CP_text),
           COLOR_PAIR(CP_text));
     if (len != emu_flash_cfg_size()) {
         put(y + 1, x + 1, w - 2, BRIGHT(CP_raw),
@@ -1138,15 +1249,15 @@ static void draw_flash(int y, int x, int w)
         return;
     }
 
-    if (flash_top > nr_lines - PANE_ROWS)
-        flash_top = nr_lines - PANE_ROWS;
+    if (flash_top > nr_lines - flash_rows)
+        flash_top = nr_lines - flash_rows;
     if (flash_top < 0)
         flash_top = 0;
 
     /* The scroll bar first: the '>' of a line cut short goes over it. */
-    if (nr_lines > PANE_ROWS)
-        scroll_bar(y, x, w, PANE_ROWS + 2, false, flash_top, nr_lines);
-    for (row = 0; (row < PANE_ROWS) && (flash_top + row < nr_lines); row++) {
+    if (nr_lines > flash_rows)
+        scroll_bar(y, x, w, flash_rows + 2, false, flash_top, nr_lines);
+    for (row = 0; (row < flash_rows) && (flash_top + row < nr_lines); row++) {
         name = emu_flash_option(flash_top + row, cfg, value, sizeof(value),
                                 &flags);
         attr = (flags & (EMU_OPT_raw | EMU_OPT_hex_only))
@@ -1156,14 +1267,14 @@ static void draw_flash(int y, int x, int w)
         put(y + 1 + row, x + 1, w - 2, attr, "%s = %s", name,
             (flags & EMU_OPT_hex_only) ? "(only in the hex)" : value);
     }
-    if (nr_lines <= PANE_ROWS)
+    if (nr_lines <= flash_rows)
         return;
 
-    scroll_marks(y, x, PANE_ROWS + 2, false, flash_top > 0,
-                 flash_top + PANE_ROWS < nr_lines);
+    scroll_marks(y, x, flash_rows + 2, false, flash_top > 0,
+                 flash_top + flash_rows < nr_lines);
 
     /* The keys that page, in the bottom right corner. */
-    page_keys(y + PANE_ROWS + 1, x, w, false, flash_up_lit, flash_down_lit,
+    page_keys(y + flash_rows + 1, x, w, false, flash_up_lit, flash_down_lit,
               NULL);
 }
 
@@ -1328,36 +1439,40 @@ static void fdd_panel(int y, int x, int w)
     put(y + 1, x, w, BRIGHT(CP_good), "%s", fdd_type_label[emu_fdd_type]);
 
     if (apple2) {
-        static const char * const name[5] = {
-            "D_E", "PH0", "PH1", "PH2", "PH3" };
-        /* Closer than the Shugart ones, for the kept state of the phases,
-         * which a press of + or - goes on from. */
-        for (i = 0; i < 5; i++) {
-            bool on = in & (i ? EMU_FDD_PH0 << (i - 1) : EMU_FDD_SEL);
-            c = 9 + 5 * i;
-            put(y, x + c, w - c, SIGNAL(on), "%s", name[i]);
+        static const char * const name[6] = {
+            "D_E", "WRQ", "PH0", "PH1", "PH2", "PH3" };
+        static const unsigned int bit[6] = {
+            EMU_FDD_SEL, EMU_FDD_WRITE, EMU_FDD_PH0, EMU_FDD_PH0 << 1,
+            EMU_FDD_PH0 << 2, EMU_FDD_PH0 << 3 };
+        /* From a column left of the Shugart ones, for the kept state of the
+         * phases, which a press of `+` or `-` goes on from. */
+        for (i = 0; i < 6; i++) {
+            c = 8 + 5 * i;
+            put(y, x + c, w - c, SIGNAL(in & bit[i]), "%s", name[i]);
         }
-        put(y, x + 35, w - 35, BRIGHT(CP_good), "%s",
+        put(y, x + 37, w - 37, BRIGHT(CP_good), "%s",
             ui_fdd_phase_text(ui_fdd_phases(), ph));
-        put(y + 1, x + 10, w - 10, KEY(FDD_ACT_sel), "[");
-        put(y + 1, x + 15, w - 15, KEY(FDD_ACT_phase_out), "-");
-        put(y + 1, x + 16, w - 16, 0, "/");
-        put(y + 1, x + 17, w - 17, KEY(FDD_ACT_phase_in), "+");
-        put(y + 1, x + 19, w - 19, 0, "Step");
-        put(y + 1, x + 27, w - 27, KEY(FDD_ACT_release), "\\");
-        put(y + 1, x + 29, w - 29, 0, "Release");
+        put(y + 1, x + 9, w - 9, KEY(FDD_ACT_sel), "[");
+        put(y + 1, x + 14, w - 14, KEY(FDD_ACT_write), ";");
+        put(y + 1, x + 19, w - 19, KEY(FDD_ACT_phase_out), "-");
+        put(y + 1, x + 20, w - 20, 0, "/");
+        put(y + 1, x + 21, w - 21, KEY(FDD_ACT_phase_in), "+");
+        put(y + 1, x + 23, w - 23, 0, "Step");
+        put(y + 1, x + 31, w - 31, KEY(FDD_ACT_release), "\\");
+        put(y + 1, x + 33, w - 33, 0, "Release");
     } else {
-        static const char * const name[5] = {
-            "D_S", "M_O", "DIR", "STP", "SID" };
-        static const char * const keys[5] = { "[", "]", "-", "+", "\\" };
-        static const int acts[5] = {
-            FDD_ACT_sel, FDD_ACT_motor, FDD_ACT_dir, FDD_ACT_step,
-            FDD_ACT_side };
-        bool on[5] = {
-            in & EMU_FDD_SEL, in & EMU_FDD_MOTOR, in & EMU_FDD_DIR,
-            ui_fdd_stepping(), in & EMU_FDD_SIDE };
-        for (i = 0; i < 5; i++) {
-            c = 9 + 6 * i;
+        static const char * const name[6] = {
+            "D_S", "M_O", "WRG", "DIR", "STP", "SID" };
+        static const char * const keys[6] = {
+            "[", "]", ";", "-", "+", "\\" };
+        static const int acts[6] = {
+            FDD_ACT_sel, FDD_ACT_motor, FDD_ACT_write, FDD_ACT_dir,
+            FDD_ACT_step, FDD_ACT_side };
+        bool on[6] = {
+            in & EMU_FDD_SEL, in & EMU_FDD_MOTOR, in & EMU_FDD_WRITE,
+            in & EMU_FDD_DIR, ui_fdd_stepping(), in & EMU_FDD_SIDE };
+        for (i = 0; i < 6; i++) {
+            c = 9 + 5 * i;
             put(y, x + c, w - c, SIGNAL(on[i]), "%s", name[i]);
             put(y + 1, x + c + 1, w - c - 1, KEY(acts[i]), "%s", keys[i]);
         }
@@ -1379,7 +1494,7 @@ static void draw_keys(int y, int x, int w)
     /* A drawing, not text: one space from the frame. */
     usb_port(y, x + 1, w - 1);
     picture(y, x + 11, w - 11);
-    fdd_panel(y + 5, x + 1, w - 1);
+    fdd_panel(y + 5, x, w);
     y += 8;
 
     /* The latch key lights up while its mode lasts. The `+` between the
@@ -1528,20 +1643,40 @@ static int hotkey(int x, const char *key, const char *what)
     return x + strlen(what) + 1;
 }
 
+/* A quarter turn of the menu bar's spinner every half second of the host's
+ * time, so that the screen changes even while nothing else on it does. */
+#define SPIN_STEP_NS 500000000u
+static unsigned int spin_step;
+
+/* The host's monotonic clock. */
+static uint64_t clock_ns(void)
+{
+    struct timespec t;
+
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return t.tv_sec * 1000000000ull + t.tv_nsec;
+}
+
 /* The menu bar at the top, and the status line with its hotkeys at the
  * bottom. */
 static void draw_bars(void)
 {
     static const char *name = FFEMU_NAME;
     static const char *what = " - flashfloppy fw on a PC";
+    static const char spin[] = "-\\|/";
     /* "KIBER-MUZEJ, MUROM" in Cyrillic capitals, or in English where
      * everything is ASCII. */
     static const wchar_t cyrillic[] = L"\u041a\u0418\u0411\u0415\u0420-"
         L"\u041c\u0423\u0417\u0415\u0419, \u041c\u0423\u0420\u041e\u041c";
-    const wchar_t *museum = plain() ? L"CYBER-MUSEUM, MUROM" : cyrillic;
+    wchar_t museum[32];
     char ver[48];
     int name_w, what_w = strlen(what);
-    int museum_w = wcslen(museum);
+    int museum_w;
+
+    /* The museum's dash is the spinner. */
+    wcscpy(museum, plain() ? L"CYBER-MUSEUM, MUROM" : cyrillic);
+    *wcschr(museum, L'-') = spin[spin_step % 4];
+    museum_w = wcslen(museum);
 
     /* ffemu carries the version of the firmware it is built with. */
     snprintf(ver, sizeof(ver), " %s", emu_fw_version());
@@ -1564,6 +1699,7 @@ static void draw_bars(void)
 static void draw_key_bar(void)
 {
     char keys[16];
+    struct osd_view ov;
     int x = 0, i;
 
     pane_right = -1;
@@ -1584,19 +1720,22 @@ static void draw_key_bar(void)
         keys[2*i + 1] = '/';
     }
     keys[2*STYLE_nr - 1] = '\0';
-    x = hotkey(x, keys, "Rendering");
+    x = hotkey(x, keys, "Render");
+    osd_get_view(&ov);
+    if (ov.present) {
+        snprintf(keys, sizeof(keys), "%c", OSD_KEY);
+        x = hotkey(x, keys, "OSD");
+    }
     x = hotkey(x, "Ctrl+L", "Refresh");
     /* Shift is a key too; the brackets say that it is optional. */
     put(LINES - 1, x + 1, COLS, COLOR_PAIR(CP_bar), "[");
     put(LINES - 1, x + 2, COLS, COLOR_PAIR(CP_hotkey), "Shift");
     put(LINES - 1, x + 7, COLS, COLOR_PAIR(CP_bar), "+]");
     x = hotkey(x + 8, COLOR_KEYS, "Color");
-    if (FFEMU_MULTI) {
-        snprintf(keys, sizeof(keys), "%c", FDD_TYPE_KEY);
-        x = hotkey(x, keys, "FDD");
-    }
+    snprintf(keys, sizeof(keys), "%c", EXTERNALS_KEY);
+    x = hotkey(x, keys, "Externals");
     snprintf(keys, sizeof(keys), "%c", FLASH_KEY);
-    x = hotkey(x, keys, "Flash mem");
+    x = hotkey(x, keys, "Flash");
     snprintf(keys, sizeof(keys), "%c", DISPLAY_KEY);
     x = hotkey(x, keys, "Display");
     /* Cut short by a narrow window: a mark in the last column. */
@@ -1711,14 +1850,18 @@ static void draw_ff_cfg(int y, int x, int w, int h)
                  ff_cfg_top + rows < nr_lines);
 }
 
+/* How the last update of the screen ended: 0 or the error of a write. */
+static int write_errno;
+
 static void redraw(void)
 {
     static uint8_t px[OLED_W * OLED_MAX_H];
     struct oled_view v;
     struct led_view lv;
     struct lcd_view cv;
+    struct osd_view ov;
     bool led = DISP_IS_LED(fitted_display), lcd = DISP_IS_LCD(fitted_display);
-    bool too_small, mismatch;
+    bool too_small, mismatch, osd_text, osd_px;
     int style, cw, ch, fw, dh, y, kw, sw, bottom = LINES - 1;
     char title[96];
 
@@ -1750,23 +1893,42 @@ static void redraw(void)
     draw_bars();
 
     /* Controls as wide as they need, then Status and Flash mem sharing the
-     * rest, below the display; the log below them at full width, showing
-     * its newest lines. */
+     * rest, below the display; FF OSD's text below Controls, Flash mem as
+     * tall as both, or its pixels below the three; the log below them at
+     * full width, showing its newest lines. */
     y = 1 + dh;
-    kw = (keys_width() < COLS) ? keys_width() : COLS;
+    osd_get_view(&ov);
+    osd_px = ov.present && osd_braille(&ov);
+    osd_text = ov.present && !osd_px;
+    kw = keys_width();
+    if (osd_text && (kw < (int)osd_columns(&ov) + 2))
+        kw = osd_columns(&ov) + 2;
+    if (kw > COLS)
+        kw = COLS;
     sw = (COLS - kw) / 2;
     if (sw < STATUS_MIN_W)
         sw = (COLS - kw < STATUS_MIN_W) ? COLS - kw : STATUS_MIN_W;
+    flash_rows = PANE_ROWS + (osd_text ? OSD_TEXT_H : 0);
     draw_keys(y, 0, kw);
     draw_status(y, kw, sw);
     draw_flash(y, kw + sw, COLS - kw - sw);
     y += PANE_ROWS + 2;
+    if (osd_text) {
+        draw_osd(y, 0, OSD_TEXT_H, false, &ov);
+        y += OSD_TEXT_H;
+    } else if (osd_px) {
+        draw_osd(y, 0, osd_braille_rows(&ov) + 2, true, &ov);
+        y += osd_braille_rows(&ov) + 2;
+    }
     draw_log(y, 0, COLS, bottom - y);
 
     draw_dialog();
     /* Last, over a dialog or its shadow reaching it in a short window. */
     draw_key_bar();
+    /* Curses ignores a failed write, which leaves its errno set. */
+    errno = 0;
     refresh();
+    write_errno = errno;
 }
 
 /*
@@ -1990,12 +2152,14 @@ static void check_row(int y, int x, int w, bool on, bool current,
 
 /* The displays to choose from, as radio buttons, the character ROM of an
  * LCD and the 8x16 font of an OLED, which only change how it is drawn and
- * can be set whatever display is chosen, each under its label; what
- * choosing does; and on the last row, as in the Flash mem dialog, the help
- * of a ROM or the font in focus. */
+ * can be set whatever display is chosen, and the MCU whose display driver
+ * the firmware runs, each under its label; what choosing does; and on the
+ * last row, as in the Flash mem dialog, the help of a ROM, the font or an
+ * MCU in focus. */
 static void draw_display_dialog(void)
 {
-    int w = 56, h = DISP_nr + LCD_ROM_nr + 15, y, x, i;
+    int w = 56, h = DISP_nr + LCD_ROM_nr + MCU_nr + 17, y, x, i;
+    int mcu_y = DISP_nr + LCD_ROM_nr + 9;
 
     dialog_box(w, h, "Display type", &y, &x);
     put_marked(y + 2, x + 3, w - 6, COLOR_PAIR(CP_dialog),
@@ -2015,8 +2179,14 @@ static void draw_display_dialog(void)
                df_label[DF_synth]);
     check_row(y + DISP_nr + LCD_ROM_nr + 7, x + 3, w - 6, dialog_oled_synth,
               dialog_focus == DF_synth, "Made from 6x13, bold");
-    put(y + DISP_nr + LCD_ROM_nr + 9, x + 3, w - 4, COLOR_PAIR(CP_dialog),
-        "%s", "Changing the display restarts the device.");
+    put_marked(y + mcu_y, x + 3, w - 6, COLOR_PAIR(CP_dialog),
+               COLOR_PAIR(CP_dlg_hot), df_label[DF_mcu]);
+    for (i = 0; i < MCU_nr; i++)
+        radio_row(y + mcu_y + 1 + i, x + 3, w - 6, i == dialog_mcu,
+                  (dialog_focus == DF_mcu) && (i == dialog_mcu),
+                  mcu_label[i]);
+    put(y + mcu_y + MCU_nr + 2, x + 3, w - 4, COLOR_PAIR(CP_dialog),
+        "%s", "Changing the display or MCU restarts the device.");
     /* OK is the default while the focus is on no button. Both are at the
      * bottom right, as in Turbo Pascal's dialogs, Cancel's shadow at the
      * clusters' right edge, two columns between OK's shadow and Cancel. */
@@ -2030,31 +2200,73 @@ static void draw_display_dialog(void)
     else if (dialog_focus == DF_synth)
         put(y + h - 2, x + 2, w - 3, COLOR_PAIR(CP_dlg_help), "%s",
             "As firmware built with oled_font_8x16_synth draws it");
+    else if (dialog_focus == DF_mcu)
+        put(y + h - 2, x + 2, w - 3, COLOR_PAIR(CP_dlg_help), "%s",
+            mcu_help[dialog_mcu]);
 }
 
-/* The FDD types to choose from, as radio buttons: what the keyboard stands
- * in for on the cable, which the firmware detects when it boots. */
-static void draw_fdd_type_dialog(void)
+/* What the device is connected to, each as radio buttons: in the multi
+ * program the FDD type, what the keyboard stands in for on the cable, which
+ * the firmware detects when it boots; the file system of a USB drive made
+ * from a directory; and FF OSD, as a check box. */
+static void draw_externals_dialog(void)
 {
     static const char * const what[FDD_TYPE_nr] = {
         [EMU_FDD_TYPE_step_dir] = "Shugart (Beta Disk), IBM PC and the like",
         [EMU_FDD_TYPE_apple2] = "Apple Disk II, Pravetz/Agat (Izot) 140K"
     };
+    static const char * const fat_label[2] = {
+        "FAT32", "FAT16: up to 2 GB, a root folder of 512 entries"
+    };
     char text[96];
-    int w = 68, y, x, i;
+    int w = 68, h = 6, y, x, i, row;
 
-    dialog_box(w, 10, "FDD type", &y, &x);
-    for (i = 0; i < FDD_TYPE_nr; i++) {
-        snprintf(text, sizeof(text), "%s: %s", fdd_type_label[i], what[i]);
-        radio_row(y + 2 + i, x + 3, w - 6, i == dialog_fdd_type,
-                  i == dialog_fdd_type, text);
+    /* The frame, its empty first row and the buttons, then each cluster's
+     * label, options and empty row, and its note below them all. */
+    if (FFEMU_MULTI)
+        h += 1 + FDD_TYPE_nr + 1 + 1;
+    h += 1 + 2 + 1 + 1;
+    h += 1 + 1 + 1 + 1;
+    dialog_box(w, h, "Externals", &y, &x);
+    row = y + 2;
+    if (FFEMU_MULTI) {
+        put_marked(row++, x + 3, w - 6, COLOR_PAIR(CP_dialog),
+                   COLOR_PAIR(CP_dlg_hot), ef_label[EF_fdd]);
+        for (i = 0; i < FDD_TYPE_nr; i++) {
+            snprintf(text, sizeof(text), "%s: %s", fdd_type_label[i],
+                     what[i]);
+            radio_row(row++, x + 3, w - 6, i == dialog_fdd_type,
+                      (dialog_focus == EF_fdd) && (i == dialog_fdd_type),
+                      text);
+        }
+        row++;
     }
-    put(y + 5, x + 3, w - 4, COLOR_PAIR(CP_dialog), "%s",
-        "Changing the FDD type restarts the device.");
-    /* At the bottom right, as in Turbo Pascal's dialogs, Cancel's shadow at
-     * the clusters' right edge, two columns between OK's shadow and Cancel. */
-    button(y + 7, x + w - 23, button_attr(0), "  OK  ");
-    button(y + 7, x + w - 14, button_attr(1), "  Cancel  ");
+    put_marked(row++, x + 3, w - 6, COLOR_PAIR(CP_dialog),
+               COLOR_PAIR(CP_dlg_hot), ef_label[EF_fat]);
+    for (i = 0; i < 2; i++)
+        radio_row(row++, x + 3, w - 6, i == dialog_usb_fat,
+                  (dialog_focus == EF_fat) && (i == dialog_usb_fat),
+                  fat_label[i]);
+    row++;
+    put_marked(row++, x + 3, w - 6, COLOR_PAIR(CP_dialog),
+               COLOR_PAIR(CP_dlg_hot), ef_label[EF_osd]);
+    check_row(row++, x + 3, w - 6, dialog_osd, dialog_focus == EF_osd,
+              "Fitted, on the I2C bus beside an OLED or an LCD");
+    row++;
+    if (FFEMU_MULTI)
+        put(row++, x + 3, w - 4, COLOR_PAIR(CP_dialog), "%s",
+            "Changing the FDD type restarts the device.");
+    put(row++, x + 3, w - 4, COLOR_PAIR(CP_dialog), "%s",
+        "Changing the file system inserts such a drive again.");
+    put(row++, x + 3, w - 4, COLOR_PAIR(CP_dialog), "%s",
+        "Fitting or removing FF OSD restarts the device.");
+    /* OK is the default while the focus is on no button. Both are at the
+     * bottom right, as in Turbo Pascal's dialogs, Cancel's shadow at the
+     * clusters' right edge, two columns between OK's shadow and Cancel. */
+    button(y + h - 3, x + w - 23,
+           button_face(dialog_focus == EF_ok, dialog_focus < EF_ok), "  OK  ");
+    button(y + h - 3, x + w - 14,
+           button_face(dialog_focus == EF_cancel, false), "  Cancel  ");
 }
 
 /* The configuration in flash when the display changed, which may not suit
@@ -2229,8 +2441,8 @@ static void draw_dialog(void)
     case DLG_emul:
         draw_emul_dialog();
         break;
-    case DLG_fdd_type:
-        draw_fdd_type_dialog();
+    case DLG_externals:
+        draw_externals_dialog();
         break;
     case DLG_fdfile:
         draw_fdfile_dialog();
@@ -2255,7 +2467,7 @@ static void draw_dialog(void)
 /* What a key did in a dialog. */
 enum {
     DK_none, DK_taken, DK_quit, DK_display, DK_rows_yes, DK_rows_no,
-    DK_emul_yes, DK_emul_no, DK_fdd_type, DK_fdfile_yes, DK_fdfile_no,
+    DK_emul_yes, DK_emul_no, DK_externals, DK_fdfile_yes, DK_fdfile_no,
     DK_unpack, DK_write
 };
 
@@ -2292,6 +2504,9 @@ static int display_dialog_key(int key)
         else if ((dialog_focus == DF_rom) && (dialog_lcd_rom + d >= 0)
                  && (dialog_lcd_rom + d < LCD_ROM_nr))
             dialog_lcd_rom += d;
+        else if ((dialog_focus == DF_mcu) && (dialog_mcu + d >= 0)
+                 && (dialog_mcu + d < MCU_nr))
+            dialog_mcu += d;
         break;
     case 27:
         dialog = DLG_none;
@@ -2312,6 +2527,60 @@ static int display_dialog_key(int key)
     return DK_taken;
 }
 
+/* The Externals dialog's keys, as the Display type dialog's, and the letter
+ * a label marks, which moves the focus to its control. */
+static int externals_dialog_key(int key)
+{
+    int step = 0, d = (key == KEY_DOWN) ? 1 : -1, i;
+
+    switch (key) {
+    case '\t':
+        step = 1;
+        break;
+    case KEY_BTAB:
+        step = -1;
+        break;
+    case KEY_LEFT: case KEY_RIGHT:
+        if (dialog_focus == EF_ok)
+            dialog_focus = EF_cancel;
+        else if (dialog_focus == EF_cancel)
+            dialog_focus = EF_ok;
+        break;
+    case ' ':
+        if (dialog_focus == EF_osd)
+            dialog_osd = !dialog_osd;
+        break;
+    case KEY_UP: case KEY_DOWN:
+        if ((dialog_focus == EF_fdd) && (dialog_fdd_type + d >= 0)
+            && (dialog_fdd_type + d < FDD_TYPE_nr))
+            dialog_fdd_type += d;
+        else if ((dialog_focus == EF_fat) && (dialog_usb_fat + d >= 0)
+                 && (dialog_usb_fat + d < 2))
+            dialog_usb_fat += d;
+        break;
+    case 27:
+        dialog = DLG_none;
+        return DK_taken;
+    case '\n':
+        dialog = DLG_none;
+        return (dialog_focus == EF_cancel) ? DK_taken : DK_externals;
+    default:
+        for (i = 0; i < EF_nr; i++)
+            if ((key > 0) && (key < 0x80)
+                && (hotkey_of(ef_label[i]) == tolower(key))
+                && ((i != EF_fdd) || FFEMU_MULTI))
+                dialog_focus = i;
+        break;
+    }
+    while (step != 0) {
+        dialog_focus = (dialog_focus + EF_nr + step) % EF_nr;
+        if ((dialog_focus != EF_fdd) || FFEMU_MULTI)
+            break;
+    }
+    dialog_button = (dialog_focus == EF_cancel);
+    return DK_taken;
+}
+
 /* Gives @key to the dialog, if one is open. */
 static int dialog_key(int key)
 {
@@ -2319,6 +2588,8 @@ static int dialog_key(int key)
         return DK_none;
     if (dialog == DLG_display)
         return display_dialog_key(key);
+    if (dialog == DLG_externals)
+        return externals_dialog_key(key);
 
     switch (key) {
     case KEY_LEFT: case KEY_RIGHT: case '\t': case KEY_BTAB:
@@ -2335,11 +2606,6 @@ static int dialog_key(int key)
             dialog_button = 1;
             key = '\n';
         }
-    } else if (dialog == DLG_fdd_type) {
-        if ((key == KEY_UP) && (dialog_fdd_type > 0))
-            dialog_fdd_type--;
-        else if ((key == KEY_DOWN) && (dialog_fdd_type < FDD_TYPE_nr - 1))
-            dialog_fdd_type++;
     }
 
     /* The fdfile dialog goes back to the Flash mem dialog on Esc, its edits
@@ -2381,7 +2647,7 @@ static int dialog_key(int key)
     if (key == 27)
         dialog = DLG_none;
     if (key == '\n') {
-        int done = (dialog == DLG_quit) ? DK_quit : DK_fdd_type;
+        int done = DK_quit;
         dialog = DLG_none;
         return (dialog_button == 0) ? done : DK_taken;
     }
@@ -2508,6 +2774,8 @@ static int key_of_char(wint_t ch)
         { 0x439, 'q' }, { 0x419, 'Q' }, { 0x446, 'w' }, { 0x426, 'W' },
         { 0x443, 'e' }, { 0x423, 'E' },
         { 0x445, '[' }, { 0x425, '[' }, { 0x44a, ']' }, { 0x42a, ']' },
+        { 0x436, ';' }, { 0x416, ';' },
+        { 0x451, '`' }, { 0x401, '`' },
         { 0x2116, '#' } /* the numero sign, Shift+3 */
     };
     unsigned int i;
@@ -2534,14 +2802,16 @@ static void drop_sequence(wint_t c)
     }
 }
 
-/* Fits display @display, if another than the one fitted, and power-cycles
- * the device; first asking to change display-type in flash if that does not
+/* Fits display @display and makes the firmware run the display driver of MCU
+ * @mcu, EMU_MCU_*, if either is another than it is, and power-cycles the
+ * device; first asking to change display-type in flash if that does not
  * suit the display, even the one fitted already. */
-static void set_display(int display)
+static void set_display(int display, int mcu)
 {
-    rows_restart = (display != config.display);
+    rows_restart = (display != config.display) || (mcu != config.mcu);
     if (rows_restart) {
         config.display = display;
+        config.mcu = mcu;
         rc_save();
     }
     emu_flash_get(rows_cfg);
@@ -4021,6 +4291,8 @@ static int fdd_key(int key)
     switch (key) {
     case '[':
         return FDD_ACT_sel;
+    case ';':
+        return FDD_ACT_write;
     case ']':
         return FDD_ACT_motor;
     case '-':
@@ -4033,6 +4305,43 @@ static int fdd_key(int key)
     return -1;
 }
 
+/* When to renew the screen, or 0. */
+static uint64_t renew_at;
+#define RENEW_DELAY_NS 400000000u
+
+/* At the next refresh, the whole screen anew in a new alternate screen: a
+ * Windows pseudo console passes on only what changed in its copy of the
+ * screen, while its terminal may have broken rows in a width just changed. */
+static void renew_screen(void)
+{
+    endwin();
+    clearok(stdscr, TRUE);
+}
+
+/* The terminal resized: the next refresh repaints everything, and a pseudo
+ * console's terminal gets the screen anew once the size has settled. */
+static void resized(void)
+{
+    clearok(stdscr, TRUE);
+#ifdef __CYGWIN__
+    if (pseudo_console())
+        renew_at = clock_ns() + RENEW_DELAY_NS;
+#endif
+}
+
+/* Reads the terminal's size, since the runtime of Windows loses the signal of
+ * a resize when another call has read the new size before. */
+static void check_size(void)
+{
+    struct winsize ws;
+
+    if ((ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0) && (ws.ws_row > 0)
+        && (ws.ws_col > 0) && is_term_resized(ws.ws_row, ws.ws_col)) {
+        resizeterm(ws.ws_row, ws.ws_col);
+        resized();
+    }
+}
+
 static void handle_key(int key)
 {
     unsigned int i;
@@ -4041,10 +4350,13 @@ static void handle_key(int key)
     if ((key == '\r') || (key == KEY_ENTER))
         key = '\n';
 
-    /* Ctrl+L, or the window resized: the next refresh repaints everything,
-     * for a terminal that has lost part of the screen. */
-    if ((key == ('L' & 0x1f)) || (key == KEY_RESIZE)) {
-        clearok(stdscr, TRUE);
+    /* Ctrl+L, for a terminal that has lost part of the screen. */
+    if (key == ('L' & 0x1f)) {
+        renew_screen();
+        return;
+    }
+    if (key == KEY_RESIZE) {
+        resized();
         return;
     }
 
@@ -4074,7 +4386,7 @@ static void handle_key(int key)
             emu_oled_synth_8x16 = config.oled_synth;
             rc_save();
         }
-        set_display(dialog_display);
+        set_display(dialog_display, dialog_mcu);
         return;
     case DK_rows_yes: {
         char then[64], msg[160];
@@ -4098,7 +4410,18 @@ static void handle_key(int key)
         leave(KEY_ACT_reset);
     case DK_emul_no:
         leave(KEY_ACT_reset);
-    case DK_fdd_type:
+    case DK_externals:
+        /* The file system first: the new type restarts the device. */
+        ui_usb_set_fat16(dialog_usb_fat == 1);
+        /* The firmware finds FF OSD as it starts: a change restarts the
+         * device, as one of the FDD type does. */
+        if (dialog_osd != config.osd) {
+            config.osd = dialog_osd;
+            if (dialog_fdd_type == config.fdd_type) {
+                rc_save();
+                leave(KEY_ACT_reset);
+            }
+        }
         set_fdd_type(dialog_fdd_type);
         return;
     case DK_fdfile_yes: {
@@ -4138,7 +4461,7 @@ static void handle_key(int key)
 
     if ((key == KEY_PPAGE) || (key == KEY_NPAGE)) {
         /* A page less a line, which stays in view. */
-        flash_top += (key == KEY_NPAGE) ? PANE_ROWS - 1 : 1 - PANE_ROWS;
+        flash_top += (key == KEY_NPAGE) ? flash_rows - 1 : 1 - flash_rows;
         *((key == KEY_NPAGE) ? &flash_down_lit : &flash_up_lit) = lit_end();
         return;
     }
@@ -4154,14 +4477,18 @@ static void handle_key(int key)
         dialog_display = config.display;
         dialog_lcd_rom = config.lcd_rom;
         dialog_oled_synth = config.oled_synth;
+        dialog_mcu = config.mcu;
         dialog_focus = DF_display;
         return;
     }
 
-    if ((key == FDD_TYPE_KEY) && FFEMU_MULTI) {
-        dialog = DLG_fdd_type;
+    if (key == EXTERNALS_KEY) {
+        dialog = DLG_externals;
         dialog_button = 0;
         dialog_fdd_type = config.fdd_type;
+        dialog_usb_fat = config.usb_fat16;
+        dialog_osd = config.osd;
+        dialog_focus = FFEMU_MULTI ? EF_fdd : EF_fat;
         return;
     }
 
@@ -4188,6 +4515,17 @@ static void handle_key(int key)
         return;
     }
 
+    if (key == OSD_KEY) {
+        struct osd_view ov;
+        osd_get_view(&ov);
+        if (ov.present) {
+            config.osd_braille = !config.osd_braille;
+            rc_save();
+            clearok(stdscr, TRUE);
+        }
+        return;
+    }
+
     if (!style_key(key))
         color_key(key);
 }
@@ -4209,6 +4547,8 @@ static bool terminal_gone(uint64_t waited_ns)
 static void *tui_thread(void *unused)
 {
     int key, rc, i;
+    unsigned int step, failed = 0;
+    bool new_step;
     uint64_t t;
     wint_t ch;
 
@@ -4281,6 +4621,7 @@ static void *tui_thread(void *unused)
         init_pair(CP_button_def, COLOR_CYAN, COLOR_GREEN);
         init_pair(CP_signal, COLOR_BLACK, COLOR_YELLOW);
         init_pair(CP_key, COLOR_RED, COLOR_BLUE);
+        init_pair(CP_osd, COLOR_GREEN, COLOR_BLACK);
         set_lcd_pairs();
         for (i = 1; i < CP_nr; i++)
             bright_twin(i);
@@ -4323,7 +4664,28 @@ static void *tui_thread(void *unused)
         ui_poll();
         check_flash_dump();
         check_fdd_type();
+        /* Each step of the spinner is written to the terminal: when two in a
+         * row fail, the terminal has gone with no hangup signal, as a
+         * terminal window does when its process is killed. */
+        step = clock_ns() / SPIN_STEP_NS;
+        new_step = (step != spin_step);
+        spin_step = step;
+        if (new_step)
+            check_size();
+        if ((renew_at != 0) && (clock_ns() >= renew_at)) {
+            renew_at = 0;
+            renew_screen();
+        }
         redraw();
+        if (new_step) {
+            failed = ((write_errno == EIO) || (write_errno == EPIPE)
+                || (write_errno == EBADF)) ? failed + 1 : 0;
+            if (failed >= 2)
+                raise(SIGHUP);
+#ifdef __CYGWIN__
+            check_console_bars();
+#endif
+        }
     }
 
     return NULL;

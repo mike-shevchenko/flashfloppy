@@ -23,6 +23,9 @@
 #include <pwd.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#ifdef __CYGWIN__
+#include <sys/cygwin.h>
+#endif
 
 #include "host.h"
 
@@ -41,8 +44,8 @@ static const char * const color_name[8] = {
 #define BRIGHT "bright-"
 
 enum { SET_style, SET_display_color, SET_hold_ms, SET_display, SET_lcd_rom,
-       SET_oled_8x16,
-       SET_fdd_type, SET_nr };
+       SET_oled_8x16, SET_mcu, SET_osd, SET_osd_style,
+       SET_fdd_type, SET_usb_fat, SET_nr };
 
 static const struct setting {
     const char *name, *comment;
@@ -75,11 +78,31 @@ static const struct setting {
         "The OLED's 8x16 font: font (the firmware's own) or synth (made from "
         "the 6x13 one, bold, as the firmware built with "
         "oled_font_8x16_synth=y draws it). Key 0." },
+    [SET_mcu] = {
+        "mcu",
+        "The MCU whose display driver the firmware runs: 415 (the board's "
+        "own AT32F415, which shares the STM32F105's code) or 435 (an "
+        "AT32F435 board's, through that MCU's kind of I2C). Key 0." },
+    [SET_osd] = {
+        "osd",
+        "FF OSD on the I2C bus beside an OLED or an LCD: yes or no. "
+        "Key 8." },
+    [SET_osd_style] = {
+        "osd-style",
+        "How the OSD pane shows FF OSD: text, or braille where the window is "
+        "wide enough. Key `." },
     [SET_fdd_type] = {
         "fdd-type",
         "FDD type, the computer on the floppy cable: step-dir (Shugart, PC "
         "and the like) or apple2 (stepper phases); the shugart firmware "
-        "takes step-dir only, the apple2 firmware apple2 only. Key 8." }
+        "takes step-dir only, the apple2 firmware apple2 only. Key 8." },
+    [SET_usb_fat] = {
+        "usb-fat",
+        "File system of a USB drive made from a directory: fat32, or fat16 "
+        "(as a drive of up to 2 GB may have it, its root folder of 512 "
+        "entries; what does not fit is left out, as copying would leave "
+        "it). Key 8, which inserts such a drive again; else it takes "
+        "effect at the next insertion." }
 };
 
 /* The value of setting @set as the file has it, into @buf. */
@@ -105,8 +128,20 @@ static const char *value_of(int set, char *buf, size_t size)
     case SET_oled_8x16:
         snprintf(buf, size, "%s", config.oled_synth ? "synth" : "font");
         break;
+    case SET_mcu:
+        snprintf(buf, size, "%s", mcu_name[config.mcu]);
+        break;
+    case SET_osd:
+        snprintf(buf, size, "%s", config.osd ? "yes" : "no");
+        break;
+    case SET_osd_style:
+        snprintf(buf, size, "%s", config.osd_braille ? "braille" : "text");
+        break;
     case SET_fdd_type:
         snprintf(buf, size, "%s", fdd_type_name[config.fdd_type]);
+        break;
+    case SET_usb_fat:
+        snprintf(buf, size, "%s", config.usb_fat16 ? "fat16" : "fat32");
         break;
     }
     return buf;
@@ -137,11 +172,39 @@ void own_file(const char *path)
     }
 }
 
+bool bare_windows(void)
+{
+#ifdef __CYGWIN__
+    return access("/usr/bin/sh.exe", X_OK) != 0;
+#else
+    return false;
+#endif
+}
+
+const char *user_path(const char *path, char *buf, size_t size)
+{
+#ifdef __CYGWIN__
+    if (bare_windows()
+        && (cygwin_conv_path(CCP_POSIX_TO_WIN_A | CCP_ABSOLUTE, path, buf,
+                             size) == 0))
+        return buf;
+#endif
+    (void)buf;
+    (void)size;
+    return path;
+}
+
 void make_dirs(char *dir)
 {
-    char *p;
+    char *p = dir;
 
-    for (p = dir + 1; *p != '\0'; p++) {
+#ifdef __CYGWIN__
+    /* The drive of a Windows path is no folder to make: the runtime would
+     * make "C:" a folder of that name in the current one. */
+    if (isalpha((unsigned char)dir[0]) && (dir[1] == ':') && (dir[2] == '/'))
+        p += 2;
+#endif
+    for (p++; *p != '\0'; p++) {
         if (*p == '/') {
             *p = '\0';
             if (mkdir(dir, 0755) == 0)
@@ -247,6 +310,24 @@ static bool parse_line(char *line)
             return false;
         config.oled_synth = !strcmp(value, "synth");
         return true;
+    case SET_mcu:
+        for (i = 0; i < MCU_nr; i++) {
+            if (!strcmp(value, mcu_name[i])) {
+                config.mcu = i;
+                return true;
+            }
+        }
+        return false;
+    case SET_osd:
+        if (strcmp(value, "yes") && strcmp(value, "no"))
+            return false;
+        config.osd = !strcmp(value, "yes");
+        return true;
+    case SET_osd_style:
+        if (strcmp(value, "text") && strcmp(value, "braille"))
+            return false;
+        config.osd_braille = !strcmp(value, "braille");
+        return true;
     case SET_fdd_type:
         for (i = 0; i < FDD_TYPE_nr; i++) {
             if (!strcmp(value, fdd_type_name[i])) {
@@ -255,6 +336,11 @@ static bool parse_line(char *line)
             }
         }
         return false;
+    case SET_usb_fat:
+        if (strcmp(value, "fat32") && strcmp(value, "fat16"))
+            return false;
+        config.usb_fat16 = !strcmp(value, "fat16");
+        return true;
     }
 
     return false;
@@ -264,12 +350,14 @@ static bool parse_line(char *line)
 #define RC_VALUE_MAX 2048
 #define RC_LINE_MAX 4096
 
-/* Writes @text to the settings file, by way of a new file put in its place. */
+/* Writes @text to the settings file, by way of a new file put in its place;
+ * on failure errno says why. */
 static bool write_file(const char *text)
 {
     char dir[sizeof(config.path)], tmp[sizeof(config.path) + 8], *slash;
     FILE *f;
     bool ok;
+    int err = 0;
 
     snprintf(dir, sizeof(dir), "%s", config.path);
     slash = strrchr(dir, '/');
@@ -281,19 +369,29 @@ static bool write_file(const char *text)
     snprintf(tmp, sizeof(tmp), "%s.new", config.path);
     f = fopen(tmp, "w");
     if (f == NULL) {
-        host_log("Cannot write %s: %s", tmp, strerror(errno));
+        err = errno;
+        host_log("Cannot write %s: %s", tmp, strerror(err));
+        errno = err;
         return false;
     }
     ok = (fputs(text, f) >= 0);
-    ok = (fclose(f) == 0) && ok;
+    if (!ok)
+        err = errno;
+    if ((fclose(f) != 0) && ok) {
+        err = errno;
+        ok = false;
+    }
     if (ok)
         own_file(tmp);
     if (ok && (rename(tmp, config.path) != 0)) {
-        host_log("Cannot replace %s: %s", config.path, strerror(errno));
+        err = errno;
+        host_log("Cannot replace %s: %s", config.path, strerror(err));
         ok = false;
     }
-    if (!ok)
+    if (!ok) {
         remove(tmp);
+        errno = err;
+    }
     return ok;
 }
 
@@ -556,10 +654,14 @@ void rc_load(void)
     config.display = DISP_ssd1306_32;
     config.lcd_rom = LCD_ROM_cyr;
     config.oled_synth = false;
+    config.mcu = EMU_MCU_at32f415;
+    config.osd = true;
+    config.osd_braille = false;
     config.display_color = 8 | 6; /* bright cyan */
     config.hold_ms = 150;
     config.fdd_type = (FFEMU_APPLE2 || FFEMU_MULTI) ? EMU_FDD_TYPE_apple2
         : EMU_FDD_TYPE_step_dir;
+    config.usb_fat16 = false;
 
     if ((xdg != NULL) && (xdg[0] != '\0'))
         snprintf(config.path, sizeof(config.path),
@@ -571,8 +673,18 @@ void rc_load(void)
     f = fopen(config.path, "r");
     if (f == NULL) {
         /* The first run: write the defaults, to be seen and edited. */
-        if (errno == ENOENT)
+        if (errno == ENOENT) {
             rc_save();
+            if (!config.loaded) {
+                int err = errno;
+                char buf[sizeof(config.path) + 64];
+                fprintf(stderr, "ffemu: cannot create the config file %s: "
+                        "%s\n", user_path(config.path, buf, sizeof(buf)),
+                        strerror(err));
+                exit(1);
+            }
+            config.created = true;
+        }
         return;
     }
     config.loaded = true;

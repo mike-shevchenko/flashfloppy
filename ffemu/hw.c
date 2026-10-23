@@ -12,8 +12,9 @@
  * interface, with their EXTI interrupts as AFIO routes them, and TIM2's
  * capture of STEP; the two GPIO lines of the 7-segment LED display; the
  * one-shot timer behind timer.c; the I2C master with its
- * DMA channel, which carries the display traffic. The floppy data timers and
- * their DMA channels are mere registers: no data flows.
+ * DMA channel, which carries the display traffic, or the AT32F435's, which
+ * at32f435.c models for that MCU's display driver. The floppy data timers
+ * and their DMA channels are mere registers: no data flows.
  *
  * This is free and unencumbered software released into the public domain.
  * See the file COPYING for more details, or visit <http://unlicense.org>.
@@ -57,6 +58,11 @@ void IRQ_27(void);
 void IRQ_28(void);
 void IRQ_40(void);
 void IRQ_43(void);
+/* The AT32F435's display driver's, and the model of its I2C2. */
+void at435_IRQ_33(void);
+void at435_IRQ_34(void);
+void at435_bus_sync(uint64_t now);
+uint64_t at435_bus_due_ns(void);
 
 void emu_irq_vector(unsigned int nr)
 {
@@ -74,8 +80,12 @@ void emu_irq_vector(unsigned int nr)
     case 30: IRQ_30(); break; /* TIM4 */
     case 31: IRQ_31(); break; /* I2C1 event */
     case 32: IRQ_32(); break; /* I2C1 error */
-    case 33: IRQ_33(); break; /* I2C2 event */
-    case 34: IRQ_34(); break; /* I2C2 error */
+    case 33: /* I2C2 event */
+        (emu_mcu == EMU_MCU_at32f435) ? at435_IRQ_33() : IRQ_33();
+        break;
+    case 34: /* I2C2 error */
+        (emu_mcu == EMU_MCU_at32f435) ? at435_IRQ_34() : IRQ_34();
+        break;
     case 40: IRQ_40(); break; /* EXTI15_10 */
 #if TARGET_SUPPORTS_APPLE2
     case 27: IRQ_27(); break; /* TIM1 capture: WDATA, in Apple2 mode */
@@ -109,11 +119,18 @@ static void reg_update(volatile uint32_t *reg, uint32_t clear, uint32_t set)
         old = *reg;
 }
 
+void emu_reg_update(volatile uint32_t *reg, uint32_t clear, uint32_t set)
+{
+    reg_update(reg, clear, set);
+}
+
 uint32_t emu_stk_now(void)
 {
     uint64_t ticks;
+    emu_fw_progress();
     emu_hw_sync();
     emu_irq_poll();
+    emu_stk_read();
     /* SysTick counts down. */
     ticks = emu_time_ns() * STK_MHZ / 1000;
     return (uint32_t)(0 - ticks) & STK_MASK;
@@ -138,6 +155,7 @@ uint32_t emu_stk_now(void)
 #define PA_PHA1     9  /* Apple2, as in the release */
 #define PA_PHA0    10  /* Apple2, as in the release */
 #define PB_DIR      0  /* Step/Dir; Apple2 phase 2 */
+#define PB_WGATE    1  /* WGATE in QFN32; Apple2 write request */
 #define PB_SIDE     4
 #define PB_MOTOR   12  /* on a board with KC30 header type 2, else PB15 */
 #define PB_MOTOR2  15
@@ -208,6 +226,8 @@ static void fdd_pins(uint32_t *pa, uint32_t *pb)
 
     if (in & EMU_FDD_SEL)
         *pa &= ~m(PA_SEL0);
+    if (in & EMU_FDD_WRITE)
+        *pb &= ~m(PB_WGATE);
     if (emu_fdd_type == EMU_FDD_TYPE_apple2) {
         /* The stepper phases, unlike the drive enable, are active high.
          * Phase 1 goes to PA9 and to pin 32, SIDE, alike: the wiring of a
@@ -288,18 +308,21 @@ static void gpio_sync(uint64_t now)
     pb_odr = ((pb_odr & ~(bsrr >> 16)) | (bsrr & 0xffff)) & ~emu_gpio[1].brr;
     emu_gpio[1].brr = 0;
 
-    if ((rot_seq == NULL) && (emu_in_rotary != 0)) {
-        bool_t cw = emu_in_rotary > 0;
-        __sync_fetch_and_add(&emu_in_rotary, cw ? -1 : 1);
-        rot_seq = cw ? rot_cw : rot_ccw;
-        rot_pos = 0;
-        rot_next_ns = now;
-    }
-    if ((rot_seq != NULL) && (now >= rot_next_ns)) {
-        rot_state = rot_seq[rot_pos++];
-        rot_next_ns = now + ROT_STEP_NS;
-        if (rot_pos == sizeof(rot_cw))
-            rot_seq = NULL;
+    /* The encoder turns only while the firmware can read it right. */
+    if (emu_timers_on_time()) {
+        if ((rot_seq == NULL) && (emu_in_rotary != 0)) {
+            bool_t cw = emu_in_rotary > 0;
+            __sync_fetch_and_add(&emu_in_rotary, cw ? -1 : 1);
+            rot_seq = cw ? rot_cw : rot_ccw;
+            rot_pos = 0;
+            rot_next_ns = now;
+        }
+        if ((rot_seq != NULL) && (now >= rot_next_ns)) {
+            rot_state = rot_seq[rot_pos++];
+            rot_next_ns = now + ROT_STEP_NS;
+            if (rot_pos == sizeof(rot_cw))
+                rot_seq = NULL;
+        }
     }
 
     if (b & EMU_B_LEFT)
@@ -364,8 +387,17 @@ static void tim_sync(uint64_t now)
     }
 }
 
+/* The earlier of two deadlines, 0 being none. */
+static uint64_t earlier(uint64_t a, uint64_t b)
+{
+    if ((a == 0) || ((b != 0) && (b < a)))
+        return b;
+    return a;
+}
+
 /*
- * I2C master, STM32F1 style, and the DMA channel that feeds it.
+ * I2C master, STM32F1 style, and the DMA channels that feed it and that it
+ * fills.
  *
  * The firmware's writes to the data register cannot be trapped, so the model
  * keeps a marker bit set in DR, above the data byte. A write by the firmware
@@ -377,16 +409,18 @@ static void tim_sync(uint64_t now)
 
 static struct i2c_model {
     volatile struct i2c *r;
-    volatile struct dma_chn *tx;
-    uint8_t tx_ch, irq_ev, irq_er, irq_dma_tx;
+    volatile struct dma_chn *tx, *rx;
+    uint8_t tx_ch, rx_ch, irq_ev, irq_er, irq_dma_tx, irq_dma_rx;
     enum { I2C_idle, I2C_addr, I2C_tx, I2C_rx } state;
     bool_t dma_active;
     uint64_t dma_done_ns;
 } i2c_model[2] = {
     { .r = &emu_i2c[0], .tx = &emu_dma[0].ch[6-1], .tx_ch = 6,
-      .irq_ev = 31, .irq_er = 32, .irq_dma_tx = 16 },
+      .rx = &emu_dma[0].ch[7-1], .rx_ch = 7,
+      .irq_ev = 31, .irq_er = 32, .irq_dma_tx = 16, .irq_dma_rx = 17 },
     { .r = &emu_i2c[1], .tx = &emu_dma[0].ch[4-1], .tx_ch = 4,
-      .irq_ev = 33, .irq_er = 34, .irq_dma_tx = 14 }
+      .rx = &emu_dma[0].ch[5-1], .rx_ch = 5,
+      .irq_ev = 33, .irq_er = 34, .irq_dma_tx = 14, .irq_dma_rx = 15 }
 };
 
 /* DMA address registers hold only 32 bits of a firmware pointer. The rest is
@@ -403,6 +437,11 @@ static void *ptr32(uint32_t lo)
             p += half << 1;
     }
     return (void *)p;
+}
+
+void *emu_ptr32(uint32_t lo)
+{
+    return ptr32(lo);
 }
 
 static void i2c_sync(struct i2c_model *m, uint64_t now)
@@ -500,6 +539,29 @@ static void i2c_sync(struct i2c_model *m, uint64_t now)
         break;
 
     case I2C_rx:
+        if (m->dma_active) {
+            if (now >= m->dma_done_ns) {
+                /* The first byte came with the address; the last is
+                 * NACKed, so that no other byte is in flight then. */
+                uint8_t *p = ptr32(m->rx->cmar);
+                unsigned int i, nr = m->rx->cndtr;
+                for (i = 0; i < nr; i++)
+                    p[i] = i ? emu_i2c_dev_read() : (uint8_t)r->dr;
+                r->dr = DR_IDLE;
+                m->rx->cndtr = 0;
+                m->dma_active = FALSE;
+                m->state = I2C_idle;
+                __sync_fetch_and_or(&emu_dma[0].isr, DMA_ISR_TCIF(m->rx_ch)
+                                    | DMA_ISR_GIF(m->rx_ch));
+                if (m->rx->ccr & DMA_CCR_TCIE)
+                    emu_irqx_set_pending(m->irq_dma_rx);
+            }
+        } else if ((r->cr2 & I2C_CR2_DMAEN) && (m->rx->ccr & DMA_CCR_EN)
+                   && (m->rx->cndtr != 0)) {
+            reg_update(&r->sr1, I2C_SR1_ADDR | I2C_SR1_RXNE, 0);
+            m->dma_active = TRUE;
+            m->dma_done_ns = now + (uint64_t)m->rx->cndtr * I2C_BYTE_NS;
+        }
         break;
 
     }
@@ -523,8 +585,25 @@ static void dma_sync(void)
 static void bus_sync(uint64_t now)
 {
     dma_sync();
+    if (emu_mcu == EMU_MCU_at32f435) {
+        at435_bus_sync(now);
+        return;
+    }
     i2c_sync(&i2c_model[0], now);
     i2c_sync(&i2c_model[1], now);
+}
+
+uint64_t emu_hw_due_ns(void)
+{
+    uint64_t due = tim_armed ? tim_deadline_ns : 0;
+    unsigned int i;
+
+    if (emu_mcu == EMU_MCU_at32f435)
+        return earlier(due, at435_bus_due_ns());
+    for (i = 0; i < ARRAY_SIZE(i2c_model); i++)
+        if (i2c_model[i].dma_active)
+            due = earlier(due, i2c_model[i].dma_done_ns);
+    return due;
 }
 
 /* One thread at a time updates the models; a tick that arrives while a thread
@@ -586,7 +665,8 @@ void emu_hw_init(void)
 
 const char *emu_board_name(void)
 {
-    return "SFRKC30.AT2 (AT32F415, QFN32)";
+    return (emu_mcu == EMU_MCU_at32f435) ? "SFRKC30.AT2, AT32F435 display"
+        : "SFRKC30.AT2 (AT32F415, QFN32)";
 }
 
 /*

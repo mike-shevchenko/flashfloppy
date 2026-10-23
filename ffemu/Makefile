@@ -2,28 +2,19 @@
 #
 # Usage: make -C ffemu [O=<path>] [TARGET=shugart|apple2|multi]
 #
-# The program is built as $(O)/out/ffemu/ffemu, which runs the shugart
-# firmware, for the apple2 firmware as $(O)/out/ffemu-apple2/ffemu-apple2,
-# or for the multi firmware, with its Step/Dir and Apple2 modes, as
-# $(O)/out/ffemu-multi/ffemu-multi. O defaults to the top of the source
-# tree, as in the main Makefile.
+# The program is built as $(O)/out/ffemu/$(TARGET)/ffemu-$(TARGET):
+# ffemu-shugart runs the shugart firmware, ffemu-apple2 the apple2 one, and
+# ffemu-multi the multi firmware, with its Step/Dir and Apple2 modes. O
+# defaults to the top of the source tree, as in the main Makefile.
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))..)
 EMU := $(ROOT)/ffemu
 
 TARGET ?= shugart
-ifeq ($(TARGET),shugart)
-NAME := ffemu
-else ifeq ($(TARGET),apple2)
-NAME := ffemu-apple2
-else ifeq ($(TARGET),multi)
-NAME := ffemu-multi
-else
-$(error TARGET must be shugart, apple2 or multi)
-endif
+NAME := ffemu-$(TARGET)
 
 O ?= $(ROOT)
-OUT := $(abspath $(O))/out/$(NAME)
+OUT := $(abspath $(O))/out/ffemu/$(TARGET)
 
 CC ?= cc
 OBJCOPY ?= objcopy
@@ -52,13 +43,13 @@ FW_SRCS += display/display.c display/lcd_stm32f105.c display/led_7seg.c
 FW_SRCS += gotek/board.c gotek/speaker.c floppy.c
 FW_SRCS += image/image.c image/adf.c image/dsk.c image/hfe.c image/img.c
 FW_SRCS += image/da.c image/dummy.c image/mfm.c image/apple2.c
-EMU_FW_SRCS := hw.c stubs.c
+EMU_FW_SRCS := hw.c stubs.c at32f435.c
 # Display fonts, generated from fonts/ as in src/display/Makefile.
 FONTS := 6x13 8x16
 
 # The host half: everything that touches the host operating system.
 HOST_SRCS := ffemu.c cpu.c ssd1306.c fatimg.c rc.c tui.c script.c usbdisk.c
-HOST_SRCS += cfgfile.c led_7seg.c hd44780.c
+HOST_SRCS += cfgfile.c led_7seg.c hd44780.c wincon.c osd.c
 
 FW_OBJS := $(patsubst %.c,$(OUT)/fw/%.o,$(FW_SRCS))
 FW_OBJS += $(patsubst %.c,$(OUT)/emu/%.o,$(EMU_FW_SRCS))
@@ -78,6 +69,11 @@ FW_CFLAGS += -DMCU=MCU_stm32f105 -DTARGET=TARGET_$(TARGET) -DLEVEL=LEVEL_debug
 FW_CFLAGS += -MMD -MP
 # Extra debug flags just for ffemu
 FW_CFLAGS += -ftrivial-auto-var-init=pattern
+
+# The firmware's own code calls __sanitizer_cov_trace_pc() at each of its
+# basic blocks, by which the virtual clock tells a spin from its work.
+$(patsubst %.c,$(OUT)/fw/%.o,$(FW_SRCS)): \
+    FW_CFLAGS += -fsanitize-coverage=trace-pc
 
 HOST_CFLAGS := -std=gnu11 -O2 -g -Wall -Werror -D_GNU_SOURCE
 HOST_CFLAGS += -DNCURSES_WIDECHAR=1 -DFFEMU_NAME='"$(NAME)"'
@@ -145,7 +141,11 @@ $(OUT)/fw/gotek/board.o $(OUT)/fw/floppy.o: \
     FW_CFLAGS += -ULEVEL -DLEVEL=LEVEL_logfile
 
 # As in src/display/Makefile: the main firmware has both fonts.
-$(OUT)/fw/display/lcd_stm32f105.o: FW_CFLAGS += -Dfont_extra=1
+$(OUT)/fw/display/lcd_stm32f105.o $(OUT)/emu/at32f435.o: \
+    FW_CFLAGS += -Dfont_extra=1
+
+# at32f435.c has the AT32F435's display driver, which it builds for that MCU.
+$(OUT)/emu/at32f435.o: FW_CFLAGS += -UMCU -DMCU=MCU_at32f435
 
 .PHONY: $(ROOT)/src/build_info.c
 $(OUT)/fw/build_info.o: FW_CFLAGS += -DFW_VER="\"$(VER)\""
@@ -163,6 +163,14 @@ $(OUT)/fw/main.o: $(ROOT)/src/main.c
 	$(Q)$(CC) $(FW_CFLAGS) -c $< -o $@
 	$(Q)$(OBJCOPY) --redefine-sym main=ff_main \
 	    --globalize-symbol is_dump_flash_cfg_needed $@
+
+# at32f435.c calls the display driver's functions, or the AT32F435's.
+$(OUT)/fw/display/lcd_stm32f105.o: $(ROOT)/src/display/lcd_stm32f105.c
+	@echo CC display/lcd_stm32f105.c
+	@mkdir -p $(dir $@)
+	$(Q)$(CC) $(FW_CFLAGS) -c $< -o $@
+	$(Q)$(OBJCOPY) $(foreach f,init clear write backlight sync, \
+	    --redefine-sym lcd_$(f)=f105_lcd_$(f)) $@
 
 # stubs.c wraps these with what ffemu adds to them.
 $(OUT)/fw/floppy.o: $(ROOT)/src/floppy.c

@@ -40,12 +40,14 @@ volatile unsigned int emu_out_speaker;
 /* Set up by ui_fdd_set_type() once the settings say what the computer is. */
 volatile unsigned int emu_in_fdd;
 volatile unsigned int emu_in_step;
+volatile int emu_mcu;
 volatile int emu_fdd_type;
 volatile int emu_oled_synth_8x16;
 
 char log_ring[LOG_SIZE];
 volatile unsigned int log_head;
-const char *log_file_name;
+const char *log_file_name, *log_file_tried;
+int log_file_errno = ENOENT;
 static int log_fd = -1;
 
 static char **saved_argv;
@@ -72,6 +74,7 @@ static volatile unsigned int irq_depth;
 static void cancel_deferred(void);
 static void stop_ticks(void);
 static void restart(void) __attribute__((noreturn));
+static void take_request(void) __attribute__((noreturn));
 
 /* Runs every interrupt handler that is pending, enabled and not masked. */
 static void irq_run(void)
@@ -265,7 +268,8 @@ static void cancel_deferred(void)
  * Time.
  */
 
-uint64_t emu_time_ns(void)
+/* The host's time since the start. */
+static uint64_t host_ns(void)
 {
     struct timespec t;
     clock_gettime(CLOCK_MONOTONIC, &t);
@@ -273,10 +277,174 @@ uint64_t emu_time_ns(void)
         + t.tv_nsec - t0.tv_nsec;
 }
 
+/* The virtual clock, FFEMU_CLOCK=virtual, of scripts: the emulated time moves
+ * on only as the firmware reads SysTick and waits, so that it does not depend
+ * on how fast the host runs the firmware, and only as far as the script lets
+ * it run, where the firmware waits for the script: a script gives the same
+ * output on every run. */
+static bool virtual_clock;
+static volatile uint64_t virt_now, virt_limit;
+/* Set while the firmware waits for the script to let it run further. */
+static volatile bool virt_waiting;
+/* How far a read of SysTick moves the clock, as the loop it is in would
+ * take a while; how far a pause of a busy loop does; and the longest step of
+ * a wait, after which the peripherals' models run, unless one of their
+ * deadlines ends it sooner. */
+#define VIRT_READ_NS 1000u
+#define VIRT_RELAX_NS 10000u
+#define VIRT_STEP_NS 1000000u
+
+/* A firmware that neither moves the virtual clock nor calls the host half
+ * spins on a register or a variable, which its basic blocks show: after
+ * VIRT_SYNC_BLOCKS of them the models run, as a wait on a register, such as
+ * for the end of an I2C STOP, needs, and what they pend; after
+ * VIRT_STILL_BLOCKS, more than a stretch of the firmware's own work, the
+ * clock moves on to the models' next deadline, VIRT_SPIN_NS at most, and what
+ * comes due runs; after VIRT_SPINNING_BLOCKS where the last such move left
+ * it, as in a loop that waits for a button. */
+#define VIRT_SYNC_BLOCKS 1000u
+#define VIRT_STILL_BLOCKS 100000u
+#define VIRT_SPINNING_BLOCKS 5000u
+#define VIRT_SPIN_NS 10000000u
+/* The blocks since the last move or call, and the counts at which the
+ * models run next and the clock moves. */
+static unsigned long virt_blocks, virt_check_at = ~0ul, virt_move_at;
+static pthread_t fw_tid;
+
+static void virt_recount(unsigned long move_at)
+{
+    virt_blocks = 0;
+    virt_move_at = move_at;
+    virt_check_at = VIRT_SYNC_BLOCKS;
+}
+
+uint64_t emu_time_ns(void)
+{
+    return virtual_clock ? virt_now : host_ns();
+}
+
+/* Moves the virtual clock on to @t, after waiting while the script lets the
+ * firmware run no further, or carries out a request to quit or restart then:
+ * on Cygwin the tick that otherwise does so was seen held back for seconds. */
+static void virt_move(uint64_t t)
+{
+    uint64_t limit;
+
+    /* One read of the limit, which the script may raise meanwhile. */
+    while (t > (limit = virt_limit)) {
+        if (virt_now < limit)
+            virt_now = limit;
+        if (request != REQ_none)
+            take_request();
+        virt_waiting = true;
+        sched_yield();
+    }
+    virt_waiting = false;
+    if (t > virt_now)
+        virt_now = t;
+    virt_recount(VIRT_STILL_BLOCKS);
+}
+
+/* The clock's next stop, @t or the models' next deadline, as of their last
+ * sync, if that comes first. */
+static uint64_t virt_next(uint64_t t)
+{
+    uint64_t due = emu_hw_due_ns();
+
+    return ((due > virt_now) && (due < t)) ? due : t;
+}
+
+static void virt_check(void)
+{
+    /* Not in another thread, as a script's command may run firmware code
+     * while the firmware waits for it, nor in the middle of a sync. */
+    if (!pthread_equal(pthread_self(), fw_tid) || emu_hw_busy())
+        return;
+    if (virt_blocks < virt_move_at) {
+        virt_check_at = virt_blocks + VIRT_SYNC_BLOCKS;
+        if (virt_check_at > virt_move_at)
+            virt_check_at = virt_move_at;
+        emu_hw_sync();
+        irq_run();
+        return;
+    }
+    emu_hw_sync();
+    virt_move(virt_next(virt_now + VIRT_SPIN_NS));
+    emu_hw_sync();
+    irq_run();
+    virt_recount(VIRT_SPINNING_BLOCKS);
+}
+
+/* Called by the firmware's code at each of its basic blocks. */
+void __sanitizer_cov_trace_pc(void)
+{
+    if (++virt_blocks >= virt_check_at)
+        virt_check();
+}
+
+void emu_stk_read(void)
+{
+    if (virtual_clock)
+        virt_move(virt_now + VIRT_READ_NS);
+}
+
+bool cpu_clock_virtual(void)
+{
+    return virtual_clock;
+}
+
+void cpu_run_until(uint64_t t)
+{
+    uint64_t seen = virt_now, moved = host_ns();
+
+    if (t > virt_limit)
+        virt_limit = t;
+    /* Until the firmware waits for more, so that what the script does next
+     * finds it at the same point on every run. */
+    while ((virt_now < t) || !virt_waiting) {
+        sched_yield();
+        if (virt_now != seen) {
+            seen = virt_now;
+            moved = host_ns();
+        } else if (host_ns() - moved > 10000000000u) {
+            host_log("The firmware has not moved the virtual clock on for "
+                     "10 s: going on with the script");
+            return;
+        }
+    }
+}
+
 /* Set where the host sleeps in steps of milliseconds, as a virtual machine on
  * a Windows host may (15.6 ms): sleeping there makes the firmware's overdue
- * timers run in bursts, which lose the encoder's steps, so ffemu spins. */
+ * timers run in bursts, which lose the encoder's steps, so ffemu spins while
+ * the user is at work, see user_active(). */
 static bool coarse_sleep;
+
+/* How long ffemu spins on such a host after the user's last input. */
+#define ACTIVE_NS 3000000000u
+
+/* Whether the user has given input lately: pressed a button or a key of the
+ * floppy interface, turned the encoder, which steps on while detents are
+ * left, or inserted or removed the USB drive. */
+static bool user_active(void)
+{
+    static unsigned int buttons, fdd, step;
+    static int usb;
+    static uint64_t until;
+    unsigned int b = emu_in_buttons, f = emu_in_fdd, s = emu_in_step;
+    int u = emu_usb_inserted();
+    uint64_t now = host_ns();
+
+    if ((b != buttons) || (f != fdd) || (s != step) || (u != usb)
+        || (emu_in_rotary != 0)) {
+        buttons = b;
+        fdd = f;
+        step = s;
+        usb = u;
+        until = now + ACTIVE_NS;
+    }
+    return now < until;
+}
 
 static void sleep_us(unsigned int us)
 {
@@ -289,52 +457,141 @@ static void go_coarse(uint64_t step_ns)
 {
     coarse_sleep = true;
     host_log("This host sleeps in steps of %u ms: keeping time by "
-             "spinning, which keeps a CPU core busy",
+             "spinning after each input, which keeps a CPU core busy then",
              (unsigned int)((step_ns + 500000) / 1000000));
 }
 
-/* Gives up the CPU for a moment, as the host allows. A host whose sleeps are
+/* Notes a sleep that came @late ns after its end. A host whose sleeps are
  * coarse may pass the measurement at the start by chance, as a virtual
  * machine does now and then, so sleeps that overshoot many times in a row
  * mean coarse too. */
-static void pause_briefly(void)
+static void note_sleep(uint64_t late)
 {
     static unsigned int overshoots;
+
+    overshoots = (late > 2000000) ? overshoots + 1 : 0;
+    if (overshoots == 8)
+        go_coarse(late);
+}
+
+/* Gives up the CPU for a moment, as the host allows. */
+static void pause_briefly(void)
+{
     uint64_t t;
 
     if (coarse_sleep) {
         sched_yield();
         return;
     }
-    t = emu_time_ns();
+    t = host_ns();
     sleep_us(100);
-    t = emu_time_ns() - t;
-    overshoots = (t > 2000000) ? overshoots + 1 : 0;
-    if (overshoots == 8)
-        go_coarse(t);
+    note_sleep(host_ns() - t);
+}
+
+/* Sleeps until @end, in the host's time since the start, or until a tick cuts
+ * the sleep short: how late it woke, 0 if early. */
+static uint64_t sleep_until(uint64_t end)
+{
+    uint64_t ns = (uint64_t)t0.tv_nsec + end, now;
+    struct timespec t = { t0.tv_sec + ns / 1000000000u, ns % 1000000000u };
+
+    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
+    now = host_ns();
+    return (now > end) ? now - end : 0;
+}
+
+/* The firmware's calls into the host half from its thread, outside its
+ * interrupt handlers: a loop that spins on a variable alone makes none. */
+static volatile unsigned long progress;
+
+void emu_fw_progress(void)
+{
+    if (irq_depth == 0)
+        progress++;
+    if (virtual_clock)
+        virt_recount(VIRT_STILL_BLOCKS);
+}
+
+/* A wait shorter than this spins, since a sleep would overshoot it many times
+ * over; a longer one sleeps until its end. */
+#define SLEEP_MIN_NS 300000u
+/* A wait that sleeps, called within this of where the previous one was to
+ * end, as in a loop of waits, counts from there: the loop keeps its pace,
+ * though each sleep overshoots by up to a tick of the host's timer. */
+#define CHAIN_NS 2000000u
+static uint64_t idle_end;
+
+/* Set while the firmware's thread sleeps on a host whose sleeps are coarse. */
+static volatile bool coarse_idle;
+
+int emu_timers_on_time(void)
+{
+    return !coarse_sleep || (!coarse_idle && user_active());
+}
+
+/* A wait of the firmware's on the virtual clock: in steps, after each of
+ * which the peripherals' models run. */
+static void virt_idle(uint64_t ns)
+{
+    uint64_t end = virt_now + ns, step;
+
+    for (;;) {
+        emu_fw_progress();
+        emu_hw_sync();
+        irq_run();
+        if (virt_now >= end)
+            break;
+        step = virt_now + VIRT_STEP_NS;
+        virt_move(virt_next((step < end) ? step : end));
+    }
 }
 
 void emu_idle_ns(uint64_t ns)
 {
-    uint64_t now = emu_time_ns(), end = now + ns;
+    uint64_t now = emu_time_ns(), end = now + ns, late;
+    bool sleeps;
+
+    if (virtual_clock) {
+        virt_idle(ns);
+        return;
+    }
+
+    sleeps = (!coarse_sleep || !user_active())
+        && (ns >= SLEEP_MIN_NS);
+    if (sleeps) {
+        if (now - idle_end < CHAIN_NS)
+            end = idle_end + ns;
+        idle_end = end;
+    }
+    coarse_idle = coarse_sleep && sleeps;
 
     for (;;) {
+        emu_fw_progress();
         emu_hw_sync();
         irq_run();
         now = emu_time_ns();
         if (now >= end)
             break;
-        /* Spin for the last bit, where even a short sleep would overshoot. */
-        if (coarse_sleep || ((end - now) > 300000))
+        if (sleeps) {
+            late = sleep_until(end);
+            if (!coarse_sleep)
+                note_sleep(late);
+        } else if (coarse_sleep) {
             pause_briefly();
+        }
     }
+    coarse_idle = false;
 }
 
 void emu_relax(void)
 {
+    emu_fw_progress();
     emu_hw_sync();
     irq_run();
-    pause_briefly();
+    if (virtual_clock)
+        virt_move(virt_now + VIRT_RELAX_NS);
+    else
+        pause_briefly();
 }
 
 /*
@@ -371,9 +628,9 @@ static void measure_sleep(void)
     unsigned int i;
 
     for (i = 0; i < 5; i++) {
-        t = emu_time_ns();
+        t = host_ns();
         sleep_us(100);
-        t = emu_time_ns() - t;
+        t = host_ns() - t;
         if (t < best)
             best = t;
     }
@@ -416,16 +673,69 @@ static void on_fatal(int sig)
     raise(sig);
 }
 
+/* A firmware that waits for a button by spinning on a variable that only its
+ * interrupts change makes no progress: after SPIN_NS of that, the tick sleeps
+ * for it, a while at a time, waking at once when an input changes. */
+#define SPIN_NS 20000000u
+#define THROTTLE_NS 50000000u
+#define THROTTLE_STEP_US 2000
+static volatile bool throttling;
+
+static void throttle(void)
+{
+    static unsigned long seen;
+    static uint64_t still_since;
+    unsigned int buttons = emu_in_buttons, fdd = emu_in_fdd;
+    int rotary = emu_in_rotary, usb = emu_usb_inserted();
+    uint64_t now = host_ns(), end = now + THROTTLE_NS;
+
+    /* In a handler, the firmware waits on a peripheral, which the models
+     * release soon enough. */
+    if ((progress != seen) || (irq_depth != 0)) {
+        seen = progress;
+        still_since = now;
+        return;
+    }
+    if (now - still_since < SPIN_NS)
+        return;
+
+    throttling = true;
+    do {
+        sleep_us(THROTTLE_STEP_US);
+        if ((request != REQ_none) || (emu_in_buttons != buttons)
+            || (emu_in_rotary != rotary) || (emu_in_fdd != fdd)
+            || (emu_usb_inserted() != usb)) {
+            /* A full SPIN_NS at the tick's own pace, for the firmware's
+             * debouncing and the encoder's steps. */
+            still_since = host_ns();
+            break;
+        }
+    } while (host_ns() < end);
+    throttling = false;
+}
+
+/* Carries out a request to quit or restart, in the firmware's thread. */
+static void take_request(void)
+{
+    stop_ticks();
+    tui_stop();
+    if (request == REQ_restart)
+        restart();
+    _exit(0);
+}
+
 static void on_tick(int sig)
 {
     int saved_errno = errno;
-    if (request != REQ_none) {
-        stop_ticks();
-        tui_stop();
-        if (request == REQ_restart)
-            restart();
-        _exit(0);
+    if (request != REQ_none)
+        take_request();
+    /* On the virtual clock the firmware's own reads, waits and blocks run
+     * the models; a tick within the throttle's sleep has nothing to run. */
+    if (virtual_clock || throttling) {
+        errno = saved_errno;
+        return;
     }
+    throttle();
     emu_hw_sync();
     irq_run();
     errno = saved_errno;
@@ -502,11 +812,14 @@ static void open_log(void)
         rename(path, bak);
     }
 
+    log_file_tried = path;
     log_fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC
                   | (fw_reset ? 0 : O_TRUNC), 0644);
     if (log_fd >= 0) {
         own_file(path);
         log_file_name = path;
+    } else {
+        log_file_errno = errno;
     }
     if (fw_reset) {
         load_log_tail(path);
@@ -675,6 +988,16 @@ static void prepare_restart(void)
 
 static void restart(void)
 {
+#ifdef __CYGWIN__
+    /* Cygwin names the program without its .exe, which a directory of that
+     * name beside it, such as its settings folder, would take instead. */
+    char self[4096];
+    ssize_t n = readlink("/proc/self/exe", self, sizeof(self) - 5);
+    if (n > 0) {
+        strcpy(self + n, ".exe");
+        execv(self, saved_argv);
+    }
+#endif
     execv("/proc/self/exe", saved_argv);
     execvp(saved_argv[0], saved_argv);
     _exit(3);
@@ -732,10 +1055,20 @@ const char *cpu_restart_state(void)
 void cpu_init(char **argv)
 {
     const char *hex = getenv("FFEMU_FLASH"), *tty = getenv("FFEMU_TTY");
+    const char *clock = getenv("FFEMU_CLOCK");
 
     saved_argv = argv;
     clock_gettime(CLOCK_MONOTONIC, &t0);
     open_log();
+
+    /* The virtual clock is for scripts: the TUI runs in the host's time. */
+    if ((clock != NULL) && !strcmp(clock, "virtual")) {
+        if (isatty(STDIN_FILENO) && isatty(STDOUT_FILENO))
+            host_log("FFEMU_CLOCK=virtual is for scripts: the clock is the "
+                     "host's");
+        else
+            virtual_clock = true;
+    }
 
     if (getenv("FFEMU_STATE") != NULL) {
         restart_state = strdup(getenv("FFEMU_STATE"));
@@ -772,7 +1105,9 @@ void cpu_init(char **argv)
     }
 #endif
 
-    measure_sleep();
+    /* The virtual clock keeps the firmware's timers on time by itself. */
+    if (!virtual_clock)
+        measure_sleep();
 
     signal(SIGHUP, on_fatal);
     signal(SIGINT, on_fatal);
@@ -805,8 +1140,13 @@ void cpu_start(void)
     it.it_interval.tv_usec = it.it_value.tv_usec = 1000;
     setitimer(ITIMER_REAL, &it, NULL);
 
-    /* Created while the tick is still blocked, which it inherits. */
-    if (pthread_create(&hw_tid, NULL, hw_thread, NULL) == 0)
+    fw_tid = pthread_self();
+    if (virtual_clock)
+        virt_recount(VIRT_STILL_BLOCKS);
+    /* Created while the tick is still blocked, which it inherits; on the
+     * virtual clock the models run in the firmware's thread alone. */
+    if (!virtual_clock
+        && (pthread_create(&hw_tid, NULL, hw_thread, NULL) == 0))
         hw_started = true;
 
     block_tick(SIG_UNBLOCK);

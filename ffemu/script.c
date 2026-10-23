@@ -44,14 +44,26 @@ unsigned int script_sleep_left(void)
     return (end > now) ? (end - now) / 1000000u : 0;
 }
 
+/* On the virtual clock, a script lets the firmware run a slice at a time,
+ * serving the emulated inputs in between, as ui_poll() does every 2 ms of the
+ * host's time otherwise. */
+#define VIRT_SLICE_NS 10000000u
+
 /* Lets the firmware run for @ms, keeping the emulated inputs serviced. */
 static void run_for(unsigned int ms)
 {
+    uint64_t next;
+
     sleep_end = emu_time_ns() + (uint64_t)ms * 1000000u;
 
     do {
         ui_poll();
-        usleep(2000);
+        if (cpu_clock_virtual()) {
+            next = emu_time_ns() + VIRT_SLICE_NS;
+            cpu_run_until((next < sleep_end) ? next : sleep_end);
+        } else {
+            usleep(2000);
+        }
     } while (emu_time_ns() < sleep_end);
     ui_poll();
 
@@ -82,10 +94,22 @@ static unsigned int utf8(char *p, unsigned int cp)
     return 3;
 }
 
+/* Row @y of the LCD @cv into @row, each code as the Unicode character that
+ * its ROM's glyph stands for, in UTF-8, a white square for one with none. */
+static void lcd_row(const struct lcd_view *cv, unsigned int y, char *row)
+{
+    unsigned int x, n = 0;
+
+    for (x = 0; x < cv->cols; x++) {
+        unsigned int cp = hd44780_unicode(cv->rom, cv->text[y][x]);
+        n += utf8(row + n, !cv->on ? ' ' : cp ? cp : LCD_MISSING);
+    }
+    row[n] = '\0';
+}
+
 /* The display as text: an OLED as its pixels, the ASCII rendering's character
  * for lit; the LED display as its digits, then as pixels in that shape; the
- * LCD as its rows between bars, each code as the Unicode character that its
- * ROM's glyph stands for, in UTF-8, a white square for one with none. */
+ * LCD as its rows between bars. */
 static void dump_display(void)
 {
     static uint8_t px[OLED_W * OLED_MAX_H];
@@ -103,12 +127,7 @@ static void dump_display(void)
                cv.backlight ? "on" : "off", lcd_rom_name[cv.rom],
                cv.nr_updates);
         for (y = 0; y < cv.rows; y++) {
-            unsigned int n = 0;
-            for (x = 0; x < cv.cols; x++) {
-                unsigned int cp = hd44780_unicode(cv.rom, cv.text[y][x]);
-                n += utf8(row + n, !cv.on ? ' ' : cp ? cp : LCD_MISSING);
-            }
-            row[n] = '\0';
+            lcd_row(&cv, y, row);
             printf("|%s|\n", row);
         }
         return;
@@ -151,6 +170,90 @@ static void print_log(void)
         putchar(log_ring[log_printed % LOG_SIZE]);
 }
 
+/* Where the console output that "wait" searches begins: after its last
+ * match. */
+static unsigned int log_waited;
+
+/* Whether the console output since the last match contains @text; the next
+ * search then begins after this match. */
+static bool log_matches(const char *text)
+{
+    static char buf[LOG_SIZE + 1];
+    unsigned int head = log_head, n = 0;
+    const char *p;
+
+    if (head - log_waited > LOG_SIZE)
+        log_waited = head - LOG_SIZE;
+    for (; n != head - log_waited; n++)
+        buf[n] = log_ring[(log_waited + n) % LOG_SIZE];
+    buf[n] = '\0';
+    if ((p = strstr(buf, text)) == NULL)
+        return false;
+    log_waited += (p - buf) + strlen(text);
+    return true;
+}
+
+/* Whether @text is on the display: in the LED display's digits as "dump"
+ * prints them, or in a row of the LCD; never on an OLED. */
+static bool display_matches(const char *text)
+{
+    char row[512];
+    unsigned int y;
+
+    if (DISP_IS_LCD(config.display)) {
+        struct lcd_view cv;
+        hd44780_get_view(&cv);
+        for (y = 0; y < cv.rows; y++) {
+            lcd_row(&cv, y, row);
+            if (strstr(row, text) != NULL)
+                return true;
+        }
+    } else if (DISP_IS_LED(config.display)) {
+        struct led_view lv;
+        led_get_view(&lv);
+        led_text(&lv, row, sizeof(row));
+        return strstr(row, text) != NULL;
+    }
+    return false;
+}
+
+/* Whether the LED display's digits are @hex, the segments of each as a hex
+ * byte, as "dump" prints them. */
+static bool segments_match(const char *hex)
+{
+    struct led_view lv;
+    unsigned int i, seg;
+    int n;
+
+    if (!DISP_IS_LED(config.display))
+        return false;
+    led_get_view(&lv);
+    for (i = 0; i < lv.nr_digits; i++, hex += n)
+        if ((sscanf(hex, "%x%n", &seg, &n) != 1) || (seg != lv.seg[i]))
+            return false;
+    return true;
+}
+
+/* Lets the firmware run until the condition @kind on @text holds, checked
+ * every 10 ms, or @ms pass, and prints which. */
+static void wait_for(unsigned int ms, const char *kind, const char *text)
+{
+    uint64_t start = emu_time_ns();
+    bool ok;
+
+    for (;;) {
+        ok = !strcmp(kind, "log") ? log_matches(text)
+            : !strcmp(kind, "display") ? display_matches(text)
+            : segments_match(text);
+        if (ok || (emu_time_ns() - start >= (uint64_t)ms * 1000000u))
+            break;
+        run_for(10);
+    }
+    printf("wait %s %s: %s after %u ms\n", kind, text,
+           ok ? "ok" : "timed out",
+           (unsigned int)((emu_time_ns() - start) / 1000000u));
+}
+
 /* The signals of the host computer, active ones in capitals, and the drive
  * as the firmware sees it. */
 static void print_fdd(void)
@@ -161,14 +264,16 @@ static void print_fdd(void)
     int apple2, sel;
 
     if (emu_fdd_type == EMU_FDD_TYPE_apple2)
-        printf("fdd: apple2, %s, phases %s, kept %s\n",
+        printf("fdd: apple2, %s %s, phases %s, kept %s\n",
                (in & EMU_FDD_SEL) ? "D_E" : "d_e",
+               (in & EMU_FDD_WRITE) ? "WRQ" : "wrq",
                ui_fdd_phase_text(in, ph),
                ui_fdd_phase_text(ui_fdd_phases(), kept));
     else
-        printf("fdd: step-dir, %s %s %s %s\n",
+        printf("fdd: step-dir, %s %s %s %s %s\n",
                (in & EMU_FDD_SEL) ? "D_S" : "d_s",
                (in & EMU_FDD_MOTOR) ? "M_O" : "m_o",
+               (in & EMU_FDD_WRITE) ? "WRG" : "wrg",
                (in & EMU_FDD_DIR) ? "DIR" : "dir",
                (in & EMU_FDD_SIDE) ? "SID" : "sid");
     emu_fdd_status(&apple2, &cyl, &side, &sel, &image);
@@ -178,6 +283,32 @@ static void print_fdd(void)
     else
         printf("drive: step-dir, cyl %u, side %u, %sselected, floppy %s\n",
                cyl, side, sel ? "" : "not ", image ? image : "none");
+}
+
+/* FF OSD as text: its rows between bars, each code as FF OSD draws it,
+ * 0x7F as the checkerboard that its glyph is, in UTF-8. */
+static void dump_osd(void)
+{
+    struct osd_view v;
+    unsigned int x, y, n;
+    char row[OSD_MAX_COLS * 3 + 1];
+
+    osd_get_view(&v);
+    if (!v.present) {
+        printf("osd: none\n");
+        return;
+    }
+    printf("osd: %ux%u %s heights=%x updates=%u\n", v.cols, v.rows,
+           v.on ? "on" : "off", v.heights, v.nr_updates);
+    for (y = 0; y < v.rows; y++) {
+        for (x = n = 0; x < v.cols; x++) {
+            uint8_t c = v.text[y][x];
+            n += utf8(row + n, !v.on ? ' ' : (c == 0x7f) ? 0x2592
+                      : ((c < 0x20) || (c > 0x7f)) ? ' ' : c);
+        }
+        row[n] = '\0';
+        printf("|%s|\n", row);
+    }
 }
 
 static void print_status(void)
@@ -214,6 +345,8 @@ static void print_status(void)
         printf("display: %s 128x%u, driven 128x%u\n", v.chip, v.height,
                v.driven);
     }
+    printf("osd: %s\n", config.osd && !DISP_IS_LED(config.display)
+           ? "FF OSD 1.9 at 0x10" : "none");
     flash_summary(flash, sizeof(flash));
     printf("flash: %s\n", flash);
 
@@ -221,11 +354,12 @@ static void print_status(void)
     printf("firmware: %s, %s, on %s\n", emu_fw_version(), emu_fw_target(),
            emu_board_name());
     if (usb.inserted && (usb.kind == USB_dir))
-        printf("usb: inserted, %u files, %u dirs, %u left out, "
-               "%u case duplicates left out, %lu reads, %lu writes, "
-               "ff.cfg: %s\n", usb.nr_files, usb.nr_dirs, usb.nr_skipped,
-               usb.nr_case_dups, usb.nr_reads, usb.nr_writes,
-               usb.ff_cfg[0] ? usb.ff_cfg : "none");
+        printf("usb: inserted, FAT%u, %u files, %u dirs, %u left out, "
+               "%u case duplicates left out, %u left out for lack of room, "
+               "%lu reads, %lu writes, ff.cfg: %s\n", usb.fat_bits,
+               usb.nr_files, usb.nr_dirs, usb.nr_skipped, usb.nr_case_dups,
+               usb.nr_root_full + usb.nr_drive_full, usb.nr_reads,
+               usb.nr_writes, usb.ff_cfg[0] ? usb.ff_cfg : "none");
     else if (usb.inserted)
         printf("usb: inserted, %s of %llu sectors, %lu reads, %lu writes, "
                "ff.cfg: %s\n", (usb.kind == USB_image) ? "image" : "disk",
@@ -263,6 +397,7 @@ static void *script_thread(void *arg_sleep_ms)
 {
     char line[512], arg[64];
     unsigned int i, ms = (uintptr_t)arg_sleep_ms;
+    int n;
 
     if (ms != 0)
         run_for(ms);
@@ -273,6 +408,11 @@ static void *script_thread(void *arg_sleep_ms)
 
         if (sscanf(line, "sleep %u", &ms) == 1) {
             run_for(ms);
+        } else if ((sscanf(line, "wait %u %63s %n", &ms, arg, &n) == 2)
+                   && (line[n] != '\0')
+                   && (!strcmp(arg, "log") || !strcmp(arg, "display")
+                       || !strcmp(arg, "segments"))) {
+            wait_for(ms, arg, line + n);
         } else if (sscanf(line, "key %63s", arg) == 1) {
             for (i = 0; i < FDD_ACT_nr; i++)
                 if (ui_fdd_has(i) && !strcmp(arg, fdd_action_name[i]))
@@ -293,6 +433,12 @@ static void *script_thread(void *arg_sleep_ms)
             if ((i == KEY_ACT_reset) || (i == KEY_ACT_relaunch)
                 || (i == KEY_ACT_quit))
                 park();
+        } else if (sscanf(line, "usb-fat %63s", arg) == 1) {
+            if (strcmp(arg, "fat32") && strcmp(arg, "fat16")) {
+                fprintf(stderr, "ffemu: no such file system: %s\n", arg);
+                continue;
+            }
+            ui_usb_set_fat16(!strcmp(arg, "fat16"));
         } else if (sscanf(line, "fdd-type %63s", arg) == 1) {
             for (i = 0; i < FDD_TYPE_nr; i++)
                 if (!strcmp(arg, fdd_type_name[i]))
@@ -313,6 +459,8 @@ static void *script_thread(void *arg_sleep_ms)
             park();
         } else if (!strcmp(line, "dump")) {
             dump_display();
+        } else if (!strcmp(line, "osd")) {
+            dump_osd();
         } else if (!strcmp(line, "log")) {
             print_log();
         } else if (!strcmp(line, "status")) {
