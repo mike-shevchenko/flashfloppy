@@ -108,13 +108,7 @@ DEFINE_IRQ(dma_rdata_irq, "IRQ_rdata_dma");
 #if TARGET_SUPPORTS_APPLE2
 static struct timer step_timer;
 static void POLL_step(void *unused);
-#endif
-#if TARGET_SUPPORTS_APPLE2
 uint8_t apple2_phases;
-/* The phases on, for the display. */
-#define show_phases(pha) (apple2_phases = (pha))
-#else
-#define show_phases(pha) ((void)0)
 #endif
 #if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
 void IRQ_28(void) __attribute__((alias("IRQ_STEP_changed"))); /* TMR2 */
@@ -137,12 +131,12 @@ static const struct exti_irq exti_irqs[] = {
 #if TARGET_SUPPORTS_APPLE2
     /* WDATA */ { WDATA_IRQ, FLOPPY_IRQ_WGATE_PRI, 0 },
 #endif
-    /* SELA */ {  6, FLOPPY_IRQ_SEL_PRI, 0 },
+    /* SELA */ {  6, FLOPPY_IRQ_SEL_PRI, 0 }, 
 #if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
     /* STEP */ { STEP_IRQ, FLOPPY_IRQ_STEP_PRI, m(2) /* dummy */ },
 #endif
     /* WGATE */ {  7, FLOPPY_IRQ_WGATE_PRI, 0 },
-    /* SIDE */ { SIDE_IRQ, TIMER_IRQ_PRI, 0 }, 
+    /* SIDE */ { SIDE_IRQ, TIMER_IRQ_PRI, 0 },
     /* WGATE */ { 23, FLOPPY_IRQ_WGATE_PRI, 0 },
     /* MTR/CHGRST */ { 40, TIMER_IRQ_PRI, 0 }
 };
@@ -531,7 +525,7 @@ static void POLL_step(void *unused)
     /* Bail if drive not selected. */
     if (idr_a & m(pin_sel0)) {
         _pha = 0;
-        show_phases(0);
+        apple2_phases = 0;
         goto out;
     }
 
@@ -539,7 +533,7 @@ static void POLL_step(void *unused)
     pha = _pha;
     _pha = phase_bits(idr_a, idr_b, apple2_alt_pins);
     pha &= _pha;
-    show_phases(pha);
+    apple2_phases = pha; /* for the display */
 
     /* Do nothing while we're mid-step. */
     if (drv->step.state & STEP_active)

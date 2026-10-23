@@ -64,6 +64,7 @@ ffemu: FORCE ffemu-shugart ffemu-apple2 ffemu-multi
 unit-tests: FORCE
 	$(MAKE) -C $(ROOT)/tests O=$(O) all
 	$(MAKE) -C $(ROOT)/tests O=$(O) TARGET=apple2 all
+	$(MAKE) -C $(ROOT)/tests O=$(O) TARGET=multi all
 
 integration-tests: FORCE ffemu
 	$(MAKE) -C $(ROOT)/tests/integration O=$(O) all

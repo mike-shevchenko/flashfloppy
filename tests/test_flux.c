@@ -40,6 +40,8 @@ static void check_flux(unsigned int track, bool_t lsb_first)
                 track, nr);
 }
 
+#if TARGET_SUPPORTS_APPLE2
+
 /* Apple2: 4us cells, the track's bytes as they are. */
 TEST(flux_nib)
 {
@@ -52,7 +54,9 @@ TEST(flux_nib)
     check_flux(34 << 2, FALSE);
 }
 
-#if TARGET == TARGET_multi /* Shugart images */
+#endif
+
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
 
 /* IBM PC 720K: 2us cells of MFM made of the sectors. */
 TEST(flux_img)

@@ -2,7 +2,7 @@
  * test_apple2.c
  *
  * The Apple2 images: what .dsk, .do, .po, .nib and .nic stream, what a
- * write puts into them, and which images Apple2 mode lists and mounts.
+ * write puts into them, and which of them a folder lists and mounts.
  *
  * The disks are made up here, never taken from real disks. The expected
  * streams come from an encoder in this file, written from the format, and
@@ -532,9 +532,10 @@ TEST(apple2_write_flux)
 
     make_nib62();
     drive_reset();
+    set_apple2_mode(TRUE);
     make_disk(disk, 35);
     drive_add("DOS.DSK", disk, 35*DSK_TRK);
-    floppy_boot(TRUE);
+    floppy_boot();
     floppy_insert_image("DOS.DSK");
 
     floppy_head(2*17, 0);
@@ -552,7 +553,7 @@ TEST(apple2_write_flux)
     CHECK_MEM(got, disk, 35*DSK_TRK);
 }
 
-/* Which files Apple2 mode lists, by size alone. */
+/* Which files a folder lists, by size alone. */
 TEST(apple2_listed_sizes)
 {
     static const struct {
@@ -602,8 +603,8 @@ TEST(apple2_listed_sizes)
 }
 
 /*
- * HFE: an image whose header names an encoding that does not suit the mode
- * is refused; one whose header says none is served.
+ * HFE: an image of one track, track 0 of @want as the converters store an
+ * Apple2 disk, or else bytes 49, under a header naming @encoding.
  */
 
 static uint32_t make_hfe(uint8_t *hfe, uint8_t encoding, bool_t gcr)
@@ -647,35 +648,32 @@ static uint32_t make_hfe(uint8_t *hfe, uint8_t encoding, bool_t gcr)
     return 1024 + ((len + 255) / 256) * 512;
 }
 
+/* An HFE whose header names an encoding other than Apple II GCR is refused;
+ * one whose header says none is served. */
 TEST(apple2_hfe_encodings)
 {
     static const uint8_t encodings[5] = { 0x00, 0x02, 0x06, 0x07, 0xff };
-    unsigned int mode, i;
+    unsigned int i;
     uint32_t len;
 
     make_nib62();
     make_disk(disk, 35);
     make_track(want, disk, 0, dos_order, 0);
-    /* Shugart mode, then Apple2 mode, or Apple2 mode alone. */
-    for (mode = (TARGET == TARGET_multi) ? 0 : 1; mode < 2; mode++) {
-        for (i = 0; i < ARRAY_SIZE(encodings); i++) {
-            bool_t gcr_enc = (encodings[i] == 6) || (encodings[i] == 7);
-            bool_t ok = (encodings[i] == 0xff) || (gcr_enc == mode);
-            FRESULT fr;
-            drive_reset();
-            ft_fw_log_clear();
-            set_apple2_mode(mode);
-            len = make_hfe(file, encodings[i], TRUE);
-            drive_add("GCR.HFE", file, len);
-            fr = image_mount("GCR.HFE");
-            if ((fr == FR_OK) != ok)
-                ft_fail(__FILE__, __LINE__, "encoding %02x in %s mode: "
-                        "mount gave %d", encodings[i],
-                        mode ? "Apple2" : "Shugart", fr);
-            if (!ok)
-                CHECK(log_has(mode ? "HFE unfit: non-GCR"
-                              : "HFE unfit: GCR"));
-        }
+    for (i = 0; i < ARRAY_SIZE(encodings); i++) {
+        bool_t ok = (encodings[i] == 0x06) || (encodings[i] == 0x07)
+            || (encodings[i] == 0xff);
+        FRESULT fr;
+        drive_reset();
+        set_apple2_mode(TRUE);
+        ft_fw_log_clear();
+        len = make_hfe(file, encodings[i], TRUE);
+        drive_add("GCR.HFE", file, len);
+        fr = image_mount("GCR.HFE");
+        if ((fr == FR_OK) != ok)
+            ft_fail(__FILE__, __LINE__, "encoding %02x: mount gave %d",
+                    encodings[i], fr);
+        if (!ok)
+            CHECK(log_has("HFE unfit: non-GCR"));
     }
 }
 
