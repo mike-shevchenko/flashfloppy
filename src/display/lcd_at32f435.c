@@ -537,14 +537,6 @@ static void oled_convert_text_row_8x16(char *pc)
     const unsigned int w = 8;
 
     for (i = 0; i < lcd_columns; i++) {
-        if (TARGET_SUPPORTS_APPLE2
-            && (((uint8_t)*pc & ~0xf) == OLED_SPINNER)) {
-            oled_spinner(q, w, *pc & 0xf, oled_spinner_14, 14);
-            pc += 2;
-            q += 2*w;
-            i++;
-            continue;
-        }
         if ((c = *pc++ - 0x20) > 0x5e)
             c = '.' - 0x20;
         p = &oled_font_8x16[c * w * 2];

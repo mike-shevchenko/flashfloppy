@@ -26,18 +26,27 @@ class Steps(fr.Case, unittest.TestCase):
         self.assertWaits(r, 1 + len(steps))
 
     def test_led(self):
-        """The phases on the first digit's lower segments, 1 the left
-        one and 2 the middle one, then the position."""
+        """The phases on the first digit's lower segments, 1 the left one and
+        2 the middle one, then the position."""
         self.check_steps(
             "tm1651-3digit",
             [(0, "00 3f 3f"), (2, "10 3f 06"), (2, "40 3f 5b")])
+
+    def test_led_three_digits(self):
+        """A position of three digits takes all three digits, the phases
+        left out."""
+        r = fr.run(
+            "ffemu-apple2", ["wait 10000 log Name: 'TEST'"]
+            + ["key phase-in", "sleep 20"] * 200
+            + ["wait 3000 segments 06 3f 3f"],
+            settings=["display = tm1651-3digit"], files=DSK)
+        self.assertWaits(r, 2)
 
     def test_lcd(self):
         """The phases on as their digits, dots for the others, then the
         position."""
         self.check_steps(
-            "hd44780-16x2",
-            [(0, ".... T00"), (2, ".1.. T01"), (2, "..2. T02")])
+            "hd44780-16x2", [(0, "T00"), (2, ".1..T01"), (2, "..2.T02")])
 
 
 if __name__ == "__main__":
