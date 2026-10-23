@@ -106,9 +106,10 @@ void irqs_run(void);
 void irq_raise(unsigned int x);
 extern unsigned int nr_speaker_pulses;
 
-/* The floppy code booted for a Shugart host, or for an Apple2 host whose
- * stepper phases are at rest, and the drive selected. */
-void floppy_boot(bool_t apple2);
+/* The floppy code booted for the host of the mode the firmware is in, a
+ * Shugart host or an Apple2 host whose stepper phases are at rest, and the
+ * drive selected. */
+void floppy_boot(void);
 /* Inserts a file of the drive into the floppy code: the disk passes its
  * index now, and every 200 ms after. */
 void floppy_insert_image(const char *name);

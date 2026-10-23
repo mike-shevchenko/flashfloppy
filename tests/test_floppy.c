@@ -2,8 +2,8 @@
  * test_floppy.c
  *
  * The floppy interface: what the multi firmware detects at boot, and how
- * the head steps for an Apple2 host's stepper phases and for a Shugart
- * host's STEP and DIR.
+ * the head steps for a Shugart host's STEP and DIR, or for an Apple2 host's
+ * stepper phases.
  *
  * Written & released by Mike Shevchenko <mike.shevchenko.kz@gmail.com>
  *
@@ -17,6 +17,16 @@
 #define PB 1
 #define STEP_IRQ 28 /* TIM2, capturing STEP */
 
+/* The head's track: the apple2 target gives the cylinder in half tracks. */
+static unsigned int track(void)
+{
+    struct track_info ti;
+    floppy_get_track(&ti);
+    return (TARGET == TARGET_apple2) ? ti.cyl / 2 : ti.cyl;
+}
+
+#if TARGET_SUPPORTS_APPLE2
+
 /* The stepper phases on, bits 0 to 3, on their pins: phase 0 on PA10, 1 on
  * PA9 (on PB4, the SIDE pin, in the wiring of firmware 307), 2 on PB0 and 3
  * on PA1; active high. A pin of the other wiring is left unconnected. */
@@ -29,13 +39,12 @@ static void set_phases(unsigned int pha, bool_t fw307)
     pin_set(PA, 1, pha & 8);
 }
 
-/* The head's track: the apple2 target gives the cylinder in half tracks. */
-static unsigned int track(void)
-{
-    struct track_info ti;
-    floppy_get_track(&ti);
-    return (TARGET == TARGET_apple2) ? ti.cyl / 2 : ti.cyl;
-}
+/* An Apple2 host steps the head a half track at a time by turning on the
+ * phase next to the current one, as DOS 3.3 does, through the pairs of
+ * phases between them: the eight states of a seek, at most two phases on. */
+static const uint8_t seek_states[8] = { 1, 3, 2, 6, 4, 12, 8, 9 };
+
+#endif
 
 #if TARGET == TARGET_multi /* detection at boot */
 
@@ -106,14 +115,7 @@ TEST(floppy_detect_shugart_jc_strapped)
     CHECK(log_has("Apple2 off"));
 }
 
-#endif
-
-/* A host seeking during the window: the eight states of a seek, a
- * millisecond each, at most two phases on. */
-static const uint8_t seek_states[8] = { 1, 3, 2, 6, 4, 12, 8, 9 };
-
-#if TARGET == TARGET_multi /* detection at boot */
-
+/* A host seeking during the window, a millisecond in each state. */
 static void seeking(time_t now)
 {
     set_phases(seek_states[(now / time_ms(1)) % 8], FALSE);
@@ -141,9 +143,8 @@ TEST(floppy_detect_apple2_fw307)
 
 #endif
 
-/* An Apple2 host steps the head a half track at a time by turning on the
- * phase next to the current one, as DOS 3.3 does, through the pairs of
- * phases between them. */
+#if TARGET_SUPPORTS_APPLE2
+
 static unsigned int seek_state; /* in seek_states[], even: one phase on */
 static bool_t wiring_fw307;
 
@@ -207,6 +208,7 @@ TEST(floppy_apple2_steps_fw307)
 
 #endif
 
+/* The phases on, debounced, as the floppy code gives them to the display. */
 TEST(floppy_apple2_phases_shown)
 {
     apple2_boot(FALSE);
@@ -221,15 +223,19 @@ TEST(floppy_apple2_phases_shown)
     CHECK_EQ(track(), 0);
 }
 
-#if TARGET == TARGET_multi /* the Shugart host */
+#endif
+
+#if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
 
 /* A Shugart host steps by a pulse on STEP, inward while DIR is low. */
 static void shugart_boot(void)
 {
     drive_reset();
     board_reset();
+#if TARGET == TARGET_multi
     apple2_detect(200);
     REQUIRE(!apple2_mode);
+#endif
     floppy_init();
     floppy_set_cyl(0, 0);
     pin_set(PA, 0, FALSE); /* selected */
