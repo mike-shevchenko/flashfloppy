@@ -2879,7 +2879,10 @@ static struct fview {
     { FV_check, 1, NULL, "nav-loop",
       "Whether file/folder navigation loops from the last item to the first "
       "one and vice versa",
-      { "nav-~l~oop" }, true, true },
+      { "nav-~l~oop" }, true, false },
+    { FV_check, 1, NULL, "show-dir-slash",
+      "Whether to show folders as /NAME rather than [NAME], a column shorter",
+      { "sho~w~-dir-slash" }, true, true },
     { FV_input, 1, "autos~e~lect-file-secs", "autoselect-file-secs",
       "Seconds a highlighted floppy waits before auto-insert, 0..255: 0 "
       "waits for a button",
@@ -2892,7 +2895,7 @@ static struct fview {
       "For \"nav-mode = indexed\", gives the prefix to the floppy numbers, "
       "up to 7 chars or empty",
       { NULL }, false, false },
-    { FV_radio, 2, "t~w~obutton-action", "twobutton-action",
+    { FV_radio, 2, "two~b~utton-action", "twobutton-action",
       "What the two front buttons do",
       { "zero", "eject", "rotary", "rotary-fast", "htu" },
       false, false },
@@ -2950,7 +2953,8 @@ static const char * const fd_opts[] = {
     "display-off-secs",
     "display-scroll-rate", "display-scroll-pause", "nav-scroll-rate",
     "nav-scroll-pause", "nav-mode", "folder-sort", "sort-priority",
-    "nav-loop", "autoselect-file-secs", "autoselect-folder-secs",
+    "nav-loop", "show-dir-slash",
+    "autoselect-file-secs", "autoselect-folder-secs",
     "indexed-prefix", "twobutton-action", "image-on-startup",
     "ejected-on-startup", "notify-volume", "show-tracks-short"
 };
