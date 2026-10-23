@@ -2,28 +2,19 @@
 #
 # Usage: make -C ffemu [O=<path>] [TARGET=shugart|apple2|multi]
 #
-# The program is built as $(O)/out/ffemu/ffemu, which runs the shugart
-# firmware, for the apple2 firmware as $(O)/out/ffemu-apple2/ffemu-apple2,
-# or for the multi firmware, with its Step/Dir and Apple2 modes, as
-# $(O)/out/ffemu-multi/ffemu-multi. O defaults to the top of the source
-# tree, as in the main Makefile.
+# The program is built as $(O)/out/ffemu/$(TARGET)/ffemu-$(TARGET):
+# ffemu-shugart runs the shugart firmware, ffemu-apple2 the apple2 one, and
+# ffemu-multi the multi firmware, with its Step/Dir and Apple2 modes. O
+# defaults to the top of the source tree, as in the main Makefile.
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))..)
 EMU := $(ROOT)/ffemu
 
 TARGET ?= shugart
-ifeq ($(TARGET),shugart)
-NAME := ffemu
-else ifeq ($(TARGET),apple2)
-NAME := ffemu-apple2
-else ifeq ($(TARGET),multi)
-NAME := ffemu-multi
-else
-$(error TARGET must be shugart, apple2 or multi)
-endif
+NAME := ffemu-$(TARGET)
 
 O ?= $(ROOT)
-OUT := $(abspath $(O))/out/$(NAME)
+OUT := $(abspath $(O))/out/ffemu/$(TARGET)
 
 CC ?= cc
 OBJCOPY ?= objcopy

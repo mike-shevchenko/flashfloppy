@@ -15,6 +15,7 @@ in the commands are the firmware's."""
 import os
 import re
 import subprocess
+import sys
 import tempfile
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -28,7 +29,7 @@ FIRMWARE_RE = re.compile(r"^firmware: ([^,]*), ")
 
 def program(name):
     """The path of ffemu program @name, ffemu or ffemu-apple2."""
-    path = os.path.join(OUT, name, name)
+    path = os.path.join(OUT, *name.split("-"), name)
     if os.path.exists(path + ".exe"):
         return path + ".exe"
     if not os.path.exists(path):
@@ -80,6 +81,7 @@ def run(name, commands, settings=(), flash=(), ffemurc=None, files=None,
     lines @settings, then a [Flash mem] section of the lines @flash if any,
     unless @ffemurc gives the whole file; its USB drive is a folder holding
     @files, a dict of names and contents."""
+    if name == "ffemu": name = "ffemu-shugart"
     with tempfile.TemporaryDirectory(prefix="ffemu-test-") as tmp:
         config = os.path.join(tmp, "config")
         os.makedirs(os.path.join(config, name))
@@ -158,13 +160,12 @@ def led_cells(text):
 
 def version_frames(name, width):
     """The frames that program @name's firmware shows for its version on @width
-    digits, after those of the CPU and the RAM: UER, then each part of the
-    version between its points, cut into frames of @width characters."""
-    frames = [led_cells("UER")[:width]]
-    for part in version(name).split("."):
-        for i in range(0, len(part), width):
-            frames.append(led_cells(part[i:i + width].ljust(width)))
-    return frames
+    digits, after those of the CPU and the RAM, as scripts/mk_led_ver.py lays
+    them out for the firmware's build."""
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import mk_led_ver
+    return mk_led_ver.frames(version(name), width)
 
 
 class Case:
