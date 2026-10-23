@@ -2844,7 +2844,7 @@ static struct fview {
       { "no", "yes", "auto" }, false, true },
     { FV_input, 0, "~d~isplay-order", "display-order",
       "0=name 1=status 2=info 3=folder 4=name&status 7=blank, "
-      "d=double-height", { NULL }, false, false },
+      "d=tall w=tall&wide", { NULL }, false, false },
     { FV_input, 0, "display-~o~ff-secs", "display-off-secs",
       "Seconds without activity before the display goes dark, 0-255: 0 is "
       "always off, 255 never",
@@ -3935,9 +3935,13 @@ static void fd_key(int key)
         return;
     if (v->type == FV_input) {
         size_t len = strlen(v->text);
+        int max = FD_W(v) - fd_field[v->col] - 2;
+        /* display-order's longest value, scrolled in its field. */
+        if (v->opt && !strcmp(v->opt, "display-order"))
+            max = strlen("0w,1w,2w,3w");
         if (fd_numeric(v) && !isdigit(key))
             return;
-        if ((int)len < FD_W(v) - fd_field[v->col] - 2) {
+        if ((int)len < max) {
             v->text[len] = key;
             v->text[len + 1] = '\0';
         }
