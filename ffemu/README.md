@@ -30,7 +30,7 @@ which runs the apple2 firmware: it serves an Apple2 host and lists only the
 Apple2 images. `TARGET=multi` builds `out/ffemu/multi/ffemu-multi`, which runs
 the multi firmware: it serves a Shugart host and an Apple2 host alike,
 detecting which one it is connected to as it boots, and in its Apple2 mode
-lists only the Apple2 images, HFE, .nib, .nic, .dsk, .do and .po. In all three,
+lists only the Apple2 images, HFE, .nib, .nic, .dsk, .do and .po. In these two,
 the board and floppy code is that of the release, which keeps the rotary
 encoder where a debug build puts two stepper phases. The programs keep their
 settings and logs apart, in `ffemu-shugart/`, `ffemu-apple2/` and

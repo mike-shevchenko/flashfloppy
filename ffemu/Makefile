@@ -137,8 +137,10 @@ $(OUT)/gen/%.o: $(OUT)/gen/%.c
 # A debug build moves two Apple2 stepper phases onto the rotary encoder
 # pins; the board and floppy code of the logfile level keep them where the
 # release has them, and ffemu takes the console output itself.
+ifneq ($(TARGET),shugart)
 $(OUT)/fw/gotek/board.o $(OUT)/fw/floppy.o: \
     FW_CFLAGS += -ULEVEL -DLEVEL=LEVEL_logfile
+endif
 
 # As in src/display/Makefile: the main firmware has both fonts.
 $(OUT)/fw/display/lcd_stm32f105.o $(OUT)/emu/at32f435.o: \
