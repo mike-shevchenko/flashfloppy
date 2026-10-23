@@ -39,7 +39,6 @@ Some of these are not in a release yet: they come with the next one.
 
 - **The multi firmware**, described above, with its Apple2 images and both wirings of the phases. Its pull request follows once upstream has taken the smaller ones it builds on.
 - **The open pull requests**, and others once opened:
-  - [#1090](https://github.com/keirf/flashfloppy/pull/1090): the stepper phases on the displays of the apple2 firmware.
   - [#1114](https://github.com/keirf/flashfloppy/pull/1114): a CI job that tests ffemu on Windows and builds its Windows distribution.
   - [#1115](https://github.com/keirf/flashfloppy/pull/1115): no more than the three rows of text that FF OSD can take.
 
