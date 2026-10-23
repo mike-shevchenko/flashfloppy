@@ -785,9 +785,9 @@ static void load_log_tail(const char *path)
 }
 
 /* The console also goes to console.log in ${XDG_STATE_HOME:-~/.local/state}
- * /ffemu/ (or /ffemu-apple2/, /ffemu-multi/), begun anew on every start and
- * power cycle, the previous one becoming console.bak, replacing the one
- * before it; after a reset of the firmware's own, both go on after
+ * /ffemu-shugart/ (or /ffemu-apple2/, /ffemu-multi/), begun anew on every
+ * start and power cycle, the previous one becoming console.bak, replacing
+ * the one before it; after a reset of the firmware's own, both go on after
  * LOG_FW_RESET. */
 static void open_log(void)
 {
