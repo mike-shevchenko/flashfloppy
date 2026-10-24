@@ -760,17 +760,10 @@ static bool_t native_dir_next(void)
     return TRUE;
 }
 
-static inline int __tolower(int c)
-{
-    if ((c >= 'A') && (c <= 'Z'))
-        c += 'a' - 'A';
-    return c;
-}
-
 int strcmp_lower(const char *s1, const char *s2)
 {
     for (;;) {
-        int diff = __tolower(*s1) - __tolower(*s2);
+        int diff = charset_key(*s1) - charset_key(*s2);
         if (diff || !*s1)
             return diff;
         s1++; s2++;
@@ -787,7 +780,8 @@ static int native_base_cmp(const struct native_dirent *da,
     int diff;
 
     for (i = 0; (i < da->base_len) && (i < db->base_len); i++)
-        if ((diff = __tolower(da->name[i]) - __tolower(db->name[i])) != 0)
+        if ((diff = charset_key(da->name[i])
+             - charset_key(db->name[i])) != 0)
             return diff;
     return da->base_len - db->base_len;
 }
@@ -1146,6 +1140,18 @@ static void read_ff_cfg(void)
             ff_cfg.sort_priority = v[word_index(opts.arg, "none\0files\0")];
             break;
         }
+
+        case FFCFG_short_name_codepage: {
+            const static uint8_t v[] = {
+                CODEPAGE_mik, CODEPAGE_437, CODEPAGE_866 };
+            ff_cfg.short_name_codepage =
+                v[word_index(opts.arg, "mik\0" "437\0")];
+            break;
+        }
+
+        case FFCFG_detect_utf8_in_short_names:
+            ff_cfg.detect_utf8_in_short_names = yes;
+            break;
 
         case FFCFG_nav_mode: {
             const static uint8_t v[] = {

@@ -31,12 +31,14 @@ SUBDIRS += display gotek
 else ifeq ($(target),bootloader)
 
 OBJS += fw_update.o
+OBJS += charset.o
 SUBDIRS += display fatfs gotek usb
 
 else
 
 OBJS += main.o
 OBJS += cache.o
+OBJS += charset.o
 
 OBJS-$(shugart) += floppy.o
 OBJS-$(apple2) += floppy.o
