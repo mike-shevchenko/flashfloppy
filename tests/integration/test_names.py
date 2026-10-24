@@ -1,12 +1,15 @@
 """Names of files and folders that are not ASCII, which the firmware holds in
 the character set of inc/charset.h: a folder entered and an image mounted by
-their long names in Cyrillic, and names drawn on the OLED in each font."""
+their long names in Cyrillic, and names drawn on the OLED in each font; and
+the drive of mk_names_image.py, whose names come in every encoding."""
 
 import os
 import re
+import tempfile
 import unittest
 
 import ffemu_run as fr
+import mk_names_image
 
 # IGRY/IGRA.IMG in Cyrillic, a folder of the root and a PC image in it, which
 # the selector enters and mounts by itself.
@@ -94,6 +97,51 @@ class Names(fr.Case, unittest.TestCase):
                                  [glyph(font, c) for c in want], r.report())
         self.assertEqual(glyph("6x13", 0x20a7), glyph("6x13", 0x25a1))
         self.assertNotEqual(glyph("8x16", 0x20a7), glyph("8x16", 0x25a1))
+
+
+class NamesImage(fr.Case, unittest.TestCase):
+    """mk_names_image.py's drive, with the short-name-codepage that each
+    folder's short names need: the folder entered from the root, then its own
+    folder entered and that folder's image mounted; and its first image
+    mounted, its name read on the OLED by its glyphs."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory(prefix="ffemu-test-")
+        cls.image = os.path.join(cls.tmp.name, "names.img")
+        mk_names_image.build(cls.image)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def mount(self, i, keys):
+        """Folder @i of the root entered, @keys pressed in it, until an image
+        is mounted: the run."""
+        _, page, _, _ = mk_names_image.FOLDERS[i]
+        r = fr.run("ffemu", ["sleep 1000"] + ["key right", "sleep 200"] * i
+                   + ["sleep 2500"] + keys
+                   + ["wait 15000 log Name:", "sleep 300", "log", "dump"],
+                   flash=["short-name-codepage = " + page],
+                   drive_image=self.image)
+        self.assertWaits(r, 1)
+        return r
+
+    def test_folders(self):
+        """Each folder's own folder entered by its name."""
+        for i, (name, _, _, _) in enumerate(mk_names_image.FOLDERS):
+            with self.subTest(folder=name):
+                r = self.mount(i, [])
+                self.assertIn("Name: 'A' Type: img", r.stdout, r.report())
+
+    def test_names(self):
+        """Each folder's image listed first."""
+        for i, (name, _, shown, _) in enumerate(mk_names_image.FOLDERS):
+            with self.subTest(folder=name, image=shown):
+                r = self.mount(i, ["key right"])
+                self.assertEqual(name_cells(r, "6x13", len(shown)),
+                                 [glyph("6x13", ord(c)) for c in shown],
+                                 r.report())
 
 
 if __name__ == "__main__":
