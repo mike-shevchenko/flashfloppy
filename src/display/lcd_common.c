@@ -176,11 +176,56 @@ void lcd_sync(void)
         cpu_relax();
 }
 
-extern const uint8_t oled_font_6x13[];
+/* The glyph of character @c of the set of charset.h in the OLED fonts,
+ * which hold ASCII's 95, code page 437's 48 of 0x80-0xaf, small and capital
+ * Yo, and the Russian letters in the set's order, then a hollow square, the
+ * glyph of every code without one. */
+static unsigned int oled_font_index(unsigned int c)
+{
+    if ((c >= 0x20) && (c <= 0x7e))
+        return c - 0x20;
+#ifdef OLED_FONT_ASCII_ONLY
+    return 95;
+#else
+    if ((c >= 0x80) && (c < 0xb0))
+        return c - 0x80 + 95;
+    if ((c == 0xb2) || (c == 0xb3))
+        return c - 0xb2 + 95 + 48;
+    if (c >= 0xc0)
+        return c - 0xc0 + 95 + 48 + 2;
+    return 95 + 48 + 2 + 64;
+#endif
+}
+
+extern const struct oled_font oled_font_6x13;
+
+/* The columns of glyph @g of font @f into @cols, twice the font's width:
+ * the top page's, then the bottom page's, bit 0 a column's top pixel. */
+static void oled_font_glyph(const struct oled_font *f, unsigned int g,
+                            uint8_t *cols)
+{
+    const uint8_t *p = f->data + f->off[g];
+    unsigned int w = f->w, top = *p >> 4, nr = (*p++ & 15) + 1;
+    unsigned int x, y, row, bits = 0, nbits = 0;
+
+    memset(cols, 0, 2*w);
+    for (y = top; y < top + nr; y++) {
+        while (nbits < w) {
+            bits = (bits << 8) | *p++;
+            nbits += 8;
+        }
+        nbits -= w;
+        row = (bits >> nbits) & ((1u << w) - 1);
+        for (x = 0; x < w; x++)
+            if (row & (1u << (w - 1 - x)))
+                cols[x + (y >> 3) * w] |= 1u << (y & 7);
+    }
+}
+
 static void oled_convert_text_row_6x13(char *pc)
 {
-    unsigned int i, c;
-    const uint8_t *p;
+    unsigned int i;
+    uint8_t glyph[12];
     uint8_t *q = buffer;
     const unsigned int w = 6;
 
@@ -188,11 +233,9 @@ static void oled_convert_text_row_6x13(char *pc)
     q++;
 
     for (i = 0; i < lcd_columns; i++) {
-        if ((c = *pc++ - 0x20) > 0x5e)
-            c = '.' - 0x20;
-        p = &oled_font_6x13[c * w * 2];
-        memcpy(q, p, w);
-        memcpy(q+128, p+w, w);
+        oled_font_glyph(&oled_font_6x13, oled_font_index(*pc++), glyph);
+        memcpy(q, glyph, w);
+        memcpy(q+128, glyph+w, w);
         q += w;
     }
 
