@@ -175,6 +175,11 @@ struct packed ff_cfg {
 #define SHOWEXT_yes  1
 #define SHOWEXT_auto 2
     uint8_t show_filename_ext;
+#define CODEPAGE_866 0
+#define CODEPAGE_mik 1
+#define CODEPAGE_437 2
+    uint8_t short_name_codepage;
+    bool_t detect_utf8_in_short_names;
 };
 
 extern struct ff_cfg ff_cfg;

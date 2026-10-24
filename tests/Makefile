@@ -43,12 +43,13 @@ endif
 # The firmware half: the sources under test, as they are, with ffemu's
 # host-build headers.
 FW_SRCS := fs.c volume.c cache.c crc.c string.c util.c
-FW_SRCS += fatfs/ff.c fatfs/ffunicode.c
+FW_SRCS += fatfs/ff.c charset.c
 FW_SRCS += image/image.c image/adf.c image/dsk.c image/hfe.c image/img.c
 FW_SRCS += image/da.c image/dummy.c image/mfm.c image/apple2.c
 FW_SRCS += floppy.c
 TEST_SRCS := harness.c floppy_env.c test_floppy.c test_flux.c
 TEST_SRCS += test_logfile.c
+TEST_SRCS += test_names.c
 ifneq ($(TARGET),apple2)
 TEST_SRCS += test_img.c test_util.c test_fatimg.c
 endif
