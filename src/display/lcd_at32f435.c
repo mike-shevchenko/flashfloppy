@@ -528,11 +528,11 @@ fail:
 }
 
 #ifdef font_extra
-extern const uint8_t oled_font_8x16[];
+extern const struct oled_font oled_font_8x16;
 static void oled_convert_text_row_8x16(char *pc)
 {
-    unsigned int i, c;
-    const uint8_t *p;
+    unsigned int i;
+    uint8_t glyph[16];
     uint8_t *q = buffer;
     const unsigned int w = 8;
 
@@ -545,11 +545,9 @@ static void oled_convert_text_row_8x16(char *pc)
             i++;
             continue;
         }
-        if ((c = *pc++ - 0x20) > 0x5e)
-            c = '.' - 0x20;
-        p = &oled_font_8x16[c * w * 2];
-        memcpy(q, p, w);
-        memcpy(q+128, p+w, w);
+        oled_font_glyph(&oled_font_8x16, oled_font_index(*pc++), glyph);
+        memcpy(q, glyph, w);
+        memcpy(q+128, glyph+w, w);
         q += w;
     }
 }
