@@ -3,7 +3,7 @@ row's track, in the long form or in short with show-tracks-short, as the apple2
 firmware always gives it, with the phases; display-order's row 4, the image's
 name and its track in short; rows of double width; and the folders' names,
 which row 3 scrolls and the image selector shows in brackets or after a slash;
-and a long name's scrolling by pixel.
+a long name's scrolling by pixel; and the error messages in the user's layout.
 An OLED's rows are read as FF OSD gets them, beside it on the I2C bus: the
 display's text, as many columns as it has; or from its pixels, by the
 firmware's glyphs."""
@@ -213,20 +213,13 @@ class Apple2(Case, unittest.TestCase):
         self.check_spinner("8x16", 7*8, 16)
 
     def test_error(self):
-        """A mount error, on 16 columns right after the image's number,
-        takes the spinner away, whose second cell would cover it."""
-        r = fr.run(
-            "ffemu-apple2", ["wait 10000 log Name:", "sleep 1000", "dump"],
-            settings=["display = ssd1306-128x64"],
+        """A mount error takes the whole status row, the phase spinner with
+        it, as FF OSD gets the row: 3, 0 and 1 by default on 128x64."""
+        rows, r = self.rows(
+            "ffemu-apple2", ["sleep 1000"], "ssd1306-128x64",
             flash=["display-type = oled-128x64", "oled-font = 8x16"],
             files={"BAD.HFE": b"HXCPICFE" + bytes(600)})
-        self.assertWaits(r, 1)
-        # Row 1 of double height, under rows 3 and 0 of the menus' layout:
-        # cell 7 blank, the message from cell 8.
-        tall = [line for line in r.lines
-                if line and set(line) <= set(".#")][32:64]
-        self.assertEqual({row[56:64] for row in tall}, {"." * 8}, r.report())
-        self.assertIn("#", "".join(row[64:72] for row in tall), r.report())
+        self.assertEqual(rows[2], "E31 Bad image   ", r.report())
 
 
 class NameStatus(Case, unittest.TestCase):
@@ -736,6 +729,104 @@ class PixelScroll(fr.Case, unittest.TestCase):
                    "display-scroll-by-pixel = yes"],
             files={"ABCDEFGHIJKLMNOPQRSTUVW.IMG": bytes(737280)})
         self.assertWaits(r, 2)
+
+
+class Errors(fr.Case, unittest.TestCase):
+    """An error's code, `E` for FlashFloppy's own and `F` for FatFS's, and
+    what it means, in the user's own layout: in the status row where
+    display-order shows it, else in row 4, else in row 0; scrolling where
+    the row cannot hold it. A mount error leaves the image's name in place;
+    the end of the drive's session, here a drive without an image, puts
+    stars in row 0 where it is shown and not the error's, the other rows
+    blank."""
+
+    BAD = {"BAD.HFE": b"HXCPICFE" + bytes(600)}
+    NONE = {"README.TXT": b"No image here.\n"}
+
+    def lcd(self, files, display, flash=(), wait="log **Error"):
+        """The LCD's rows once the error is shown."""
+        r = fr.run(
+            "ffemu", ["wait 10000 " + wait, "sleep 500", "dump"],
+            settings=["display = " + display], flash=flash, files=files)
+        self.assertWaits(r, 1)
+        rows = [line[1:-1] for line in r.stdout.splitlines()
+                if line.startswith("|") and line.endswith("|")]
+        return rows, r
+
+    def test_mount_error(self):
+        rows, r = self.lcd(self.BAD, "hd44780-16x2", wait="log Name:")
+        self.assertEqual(rows, ["BAD             ", "E31 Bad image   "],
+                         r.report())
+
+    def test_session_end(self):
+        """The log line says what the error means too."""
+        rows, r = self.lcd(self.NONE, "hd44780-16x2",
+                           wait="log **Error 34 No images")
+        self.assertEqual(rows, ["*" * 15 + " ", "E34 No images   "],
+                         r.report())
+
+    def test_session_end_20x4(self):
+        """Rows 3, 0, 1 and 2 by default."""
+        rows, r = self.lcd(self.NONE, "hd44780-20x4",
+                           flash=["display-type = lcd-20x04"])
+        self.assertEqual(rows, [" " * 20, "*" * 15 + " " * 5,
+                                "E34 No images" + " " * 7, " " * 20],
+                         r.report())
+
+    def test_row4(self):
+        """Without the status row, row 4, beside the name in row 0."""
+        rows, r = self.lcd(self.BAD, "hd44780-16x2",
+                           flash=["display-order = 0,4"], wait="log Name:")
+        self.assertEqual(rows, ["BAD             ", "E31 Bad image   "],
+                         r.report())
+
+    def test_row0(self):
+        """Without rows 1 and 4, row 0, which then has no stars."""
+        rows, r = self.lcd(self.NONE, "hd44780-16x2",
+                           flash=["display-order = 0,3"])
+        self.assertEqual(rows, ["E34 No images   ", " " * 16], r.report())
+
+    def test_first_row_with_text(self):
+        """Without rows 1, 4 and 0, the first row shown that has a text: not
+        the blank 7."""
+        rows, r = self.lcd(self.NONE, "hd44780-16x2",
+                           flash=["display-order = 7,3"])
+        self.assertEqual(rows, [" " * 16, "E34 No images   "], r.report())
+
+    def test_row_back(self):
+        """A row that the selector does not write again, the folder's, gets
+        its text back with the next button."""
+        r = fr.run(
+            "ffemu", ["wait 10000 log Name:", "sleep 500", "dump",
+                      "key right", "sleep 500", "dump"],
+            settings=["display = hd44780-16x2"],
+            flash=["display-order = 3,2"],
+            files={"DIR/BAD.HFE": b"HXCPICFE" + bytes(600)})
+        self.assertWaits(r, 1)
+        rows = [line[1:-1] for line in r.stdout.splitlines()
+                if line.startswith("|") and line.endswith("|")]
+        self.assertEqual(rows[0], "E31 Bad image   ", r.report())
+        self.assertEqual(rows[2], "DIR             ", r.report())
+
+    def test_double_width(self):
+        """In a `w` row the message scrolls, its code first; FF OSD gets the
+        status row whole. Seen every 250 ms for 5 s."""
+        r = fr.run(
+            "ffemu", ["wait 10000 log **Error"]
+            + ["sleep 250", "dump", "osd"] * 20,
+            settings=["display = ssd1306-128x32"],
+            flash=["display-type = oled-128x32", "display-order = 4w"],
+            files=self.NONE)
+        self.assertWaits(r, 1)
+        pixels = [line for line in r.lines if line and set(line) <= set(".#")]
+        wide = {oled_text(pixels[i:i+32], 0, "6x13", True)
+                for i in range(0, len(pixels), 32)}
+        self.assertIn("E34 No ima", wide, r.report())
+        self.assertIn(" No images", wide, r.report())
+        osd = {[line for line in part.splitlines()
+                if line.startswith("|")][2]
+               for part in r.stdout.split("\nosd: ")[1:]}
+        self.assertEqual(osd, {"|E34 No images        |"}, r.report())
 
 
 if __name__ == "__main__":
