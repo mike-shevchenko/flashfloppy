@@ -326,19 +326,19 @@ class NameStatus(Case, unittest.TestCase):
 
 
 class DirectoryTrack(Case, unittest.TestCase):
-    """Row 5 combines the current directory with the same short track as 4;
+    """Row Z combines the current directory with the same short track as C;
     without an image, the directory has the whole row."""
 
     def test_lcd(self):
         rows, r = self.rows(
-            "ffemu", steps(3), "hd44780-16x2", flash=["display-order = 5,0"])
+            "ffemu", steps(3), "hd44780-16x2", flash=["display-order = Z,N"])
         self.assertEqual(rows[0], "/" + 11 * " " + "0T03", r.report())
         self.assertEqual(rows[1], "A" + 15 * " ", r.report())
 
     def test_apple2(self):
         rows, r = self.rows(
             "ffemu-apple2", half_tracks(2), "hd44780-16x2",
-            flash=["display-order = 5,0"], files=DSK)
+            flash=["display-order = Z,N"], files=DSK)
         self.assertEqual(rows[0], "/" + 11 * " " + "4T01", r.report())
 
     def test_scrolls_within_remaining_columns(self):
@@ -346,9 +346,70 @@ class DirectoryTrack(Case, unittest.TestCase):
             "ffemu", ["wait 15000 log Name:",
                       "wait 10000 display BCDEFGHIJKL 0T00"],
             settings=["display = hd44780-16x2"],
-            flash=["display-order = 5,0"],
+            flash=["display-order = Z,N"],
             files={"ABCDEFGHIJKLMNOPQR/A.IMG": bytes(737280)})
         self.assertWaits(r, 2)
+
+
+class Letters(Case, unittest.TestCase):
+    """display-order's rows by their initials, N, S, I, D, C, Z, and B for
+    the blank row: the same layouts as the digits, which stay taken, in either
+    case, in osd-display-order too; ffemu writes the letters back."""
+
+    def oled(self, order):
+        """A 128x64 OLED's pixels with display-order @order, once the image
+        is in."""
+        r = fr.run(
+            "ffemu", ["wait 10000 log Name:"] + steps(3)
+            + ["sleep 500", "dump"],
+            settings=["display = ssd1306-128x64"],
+            flash=["display-type = oled-128x64", "display-order = " + order],
+            files=PC)
+        self.assertWaits(r, 1)
+        return [line for line in r.lines if line and set(line) <= set(".#")]
+
+    def test_oled(self):
+        self.assertEqual(self.oled("D,Nd,S"), self.oled("3,0d,1"))
+
+    def test_lower_case(self):
+        self.assertEqual(self.oled("d,nd,s"), self.oled("3,0d,1"))
+
+    def test_lcd(self):
+        """Combined, blank, status, info on a 20x4 LCD."""
+        flash = ["display-type = lcd-20x04"]
+        letters, r = self.rows("ffemu", steps(3), "hd44780-20x4",
+                               flash + ["display-order = C,B,S,I"])
+        digits, _ = self.rows("ffemu", steps(3), "hd44780-20x4",
+                              flash + ["display-order = 4,7,1,2"])
+        self.assertEqual(letters, digits, r.report())
+        self.assertEqual(letters[1], " " * 20, r.report())
+
+    def test_osd(self):
+        letters, r = self.rows("ffemu", steps(3), "hd44780-16x2",
+                               ["osd-display-order = S,N"])
+        digits, _ = self.rows("ffemu", steps(3), "hd44780-16x2",
+                              ["osd-display-order = 1,0"])
+        self.assertEqual(letters, digits, r.report())
+
+    def test_ff_cfg(self):
+        """Through the firmware's own parser, from FF.CFG, in either case:
+        the flash that it writes, as ffemu gives it."""
+        files = dict(PC, **{"FF.CFG": "display-order = b,Sd,n\n"})
+        r = fr.run("ffemu", ["sleep 6000", "wait 10000 log Name:", "flash"],
+                   files=files)
+        self.assertWaits(r, 1)
+        self.assertEqual(r.flash().get("display-order"), "B,Sd,N",
+                         r.report())
+
+    def test_written_back(self):
+        """Letters in flash come back as letters, digits as letters too."""
+        for order, back in (("D,Nd,S", "D,Nd,S"), ("z,b,s", "Z,B,S"),
+                            ("5d,1", "Zd,S")):
+            with self.subTest(order=order):
+                r = fr.run("ffemu", ["flash"],
+                           flash=["display-order = " + order])
+                self.assertEqual(r.flash().get("display-order"), back,
+                                 r.report())
 
 
 if __name__ == "__main__":

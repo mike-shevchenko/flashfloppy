@@ -200,6 +200,7 @@ display". A change restarts the device. Reading from that I2C leaves no trace
 that the model could see, so every byte of a read is its last: the driver's one
 read of more than a byte, its probe of an SH1106, takes the last.
 
+
 FF OSD, the on-screen display that shares the I2C bus at 0x10 and shows the
 display's text over the host computer's video, is fitted beside an OLED or an
 LCD unless unticked in the Externals dialog (key `8`), kept as
