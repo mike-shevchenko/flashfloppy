@@ -162,6 +162,20 @@ void drive_reset(void)
 
 #define CLUS_SZ (CLUS_SECS*SECSZ)
 
+/* The 8.3 @name into entry @ent, in capitals and padded with blanks. */
+static void put_name(uint8_t *ent, const char *name)
+{
+    unsigned int i, j;
+
+    memset(ent, ' ', 11);
+    for (i = j = 0; (name[i] != '\0') && (name[i] != '.') && (j < 8); i++)
+        ent[j++] = toupper(name[i]);
+    while ((name[i] != '\0') && (name[i] != '.'))
+        i++;
+    for (j = 8; (name[i] != '\0') && (name[i+1] != '\0') && (j < 11); i++)
+        ent[j++] = toupper(name[i+1]);
+}
+
 /* Adds a file in clusters from next_clus on: in order, or scattered over
  * every other cluster of twice the span from the last to the first, so
  * that no cluster is followed by its neighbor. */
@@ -178,14 +192,7 @@ static unsigned int add_file(const char *name, const void *data,
     if ((nr_files == ROOT_ENTS) || (next_clus + span > NR_CLUS + 2))
         ft_abort(__FILE__, __LINE__, "drive full adding %s", name);
 
-    /* The 8.3 name, in capitals and padded with blanks. */
-    memset(ent, ' ', 11);
-    for (i = j = 0; (name[i] != '\0') && (name[i] != '.') && (j < 8); i++)
-        ent[j++] = toupper(name[i]);
-    while ((name[i] != '\0') && (name[i] != '.'))
-        i++;
-    for (j = 8; (name[i] != '\0') && (name[i+1] != '\0') && (j < 11); i++)
-        ent[j++] = toupper(name[i+1]);
+    put_name(ent, name);
     ent[11] = AM_ARC;
     put16(ent + 26, len ? (scatter ? first + 2*(nr-1) : first) : 0);
     put32(ent + 28, len);
@@ -214,12 +221,36 @@ unsigned int drive_add_fragmented(const char *name, const void *data,
     return add_file(name, data, len, TRUE);
 }
 
+void drive_add_folder(const char *name)
+{
+    uint8_t *ent = &drive[ROOT_START*SECSZ + nr_files*32];
+    uint8_t *dir = &drive[(DATA_START + (next_clus-2)*CLUS_SECS) * SECSZ];
+
+    if ((nr_files == ROOT_ENTS) || (next_clus + 1 > NR_CLUS + 2))
+        ft_abort(__FILE__, __LINE__, "drive full adding %s", name);
+
+    put_name(ent, name);
+    ent[11] = AM_DIR;
+    put16(ent + 26, next_clus);
+
+    /* Its entries `.` and `..`, the latter giving the root as cluster 0. */
+    memset(dir, 0, CLUS_SZ);
+    memcpy(dir, ".          ", 11);
+    dir[11] = AM_DIR;
+    put16(dir + 26, next_clus);
+    memcpy(dir + 32, "..         ", 11);
+    dir[32 + 11] = AM_DIR;
+
+    put_fat(next_clus++, 0xffff);
+    nr_files++;
+}
+
 void drive_fill(const char *name)
 {
     add_file(name, NULL, (NR_CLUS + 2 - next_clus) * CLUS_SZ, FALSE);
 }
 
-static void drive_mount(void)
+void drive_mount(void)
 {
     FRESULT fr;
 

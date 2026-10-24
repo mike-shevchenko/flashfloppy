@@ -30,10 +30,14 @@ void drive_add(const char *name, const void *data, uint32_t len);
  * number of its fragments. */
 unsigned int drive_add_fragmented(const char *name, const void *data,
                                   uint32_t len);
+/* Adds an empty folder of an 8.3 name to the root folder. */
+void drive_add_folder(const char *name);
 /* Adds a file of every cluster left, so that no file can grow. */
 void drive_fill(const char *name);
 /* Reads a file back into @buf: returns its length. */
 uint32_t drive_get(const char *name, void *buf, uint32_t max);
+/* Mounts the drive, unless it is mounted already. */
+void drive_mount(void);
 /* Mounts, until the next drive_reset(), the drive whose sectors @read
  * gives, in place of the one in RAM, read-only: its file system, or NULL
  * if FatFS finds none. */
