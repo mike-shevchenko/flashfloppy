@@ -53,6 +53,16 @@ class MinimalUI(display.Case, unittest.TestCase):
         self.assertEqual(len(frames), 64, r.report())
         self.assertEqual(frames[:32], frames[32:], r.report())
 
+    def test_no_font_test(self):
+        """The Main Menu stays available without the Font Test item."""
+        r = fr.run(
+            PROGRAM, ["key remove", "sleep 500", "key select", "sleep 500",
+                      "dump", "osd"],
+            settings=["display = ssd1306-128x64"])
+        self.assertWaits(r, 0)
+        self.assertIn("Main Menu", r.stdout, r.report())
+        self.assertNotIn("Font Test", r.stdout, r.report())
+
     def test_error_code_only(self):
         """An error screen shows its code without the meaning from fs_hint."""
         bad = {"BAD.HFE": b"HXCPICFE" + bytes(600)}
