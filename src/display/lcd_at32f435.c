@@ -529,29 +529,15 @@ fail:
 
 #ifdef font_extra
 extern const uint8_t oled_font_8x16[];
-static void oled_convert_text_row_8x16(char *pc)
+static void oled_glyph_8x16(uint8_t *q, unsigned int g, unsigned int from,
+                            unsigned int to)
 {
-    unsigned int i, c;
     const uint8_t *p;
-    uint8_t *q = buffer;
     const unsigned int w = 8;
 
-    for (i = 0; i < lcd_columns; i++) {
-        if (TARGET_SUPPORTS_APPLE2
-            && (((uint8_t)*pc & ~0xf) == OLED_SPINNER)) {
-            oled_spinner(q, w, *pc & 0xf, oled_spinner_14, 14);
-            pc += 2;
-            q += 2*w;
-            i++;
-            continue;
-        }
-        if ((c = *pc++ - 0x20) > 0x5e)
-            c = '.' - 0x20;
-        p = &oled_font_8x16[c * w * 2];
-        memcpy(q, p, w);
-        memcpy(q+128, p+w, w);
-        q += w;
-    }
+    p = &oled_font_8x16[g * w * 2];
+    memcpy(q, p+from, to-from);
+    memcpy(q+128, p+w+from, to-from);
 }
 #endif
 
@@ -604,7 +590,6 @@ static unsigned int oled_start_i2c(uint8_t *buf)
 /* Snapshot text buffer into the bitmap buffer. */
 static unsigned int oled_prep_buffer(void)
 {
-    int size;
     uint8_t *p = buffer;
 
     if (i2c_row == (oled_height / 8)) {
@@ -619,14 +604,9 @@ static unsigned int oled_prep_buffer(void)
     }
 
     /* Convert one row of text[] into buffer[] writes. */
-    size = oled_to_lcd_row(i2c_row/2);
-    if (size != 0) {
-        oled_double_height(&buffer[128], &buffer[(size == 1) ? 128 : 0],
-                           (i2c_row & 1) + 1);
-    } else {
-        if (!(i2c_row & 1))
-            memcpy(&buffer[128], &buffer[0], 128);
-    }
+    oled_to_lcd_row(i2c_row/2);
+    if (!(i2c_row & 1))
+        memcpy(&buffer[128], &buffer[0], 128);
 
     /* New I2C transaction. */
     p += oled_start_i2c(p);
