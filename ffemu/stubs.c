@@ -320,6 +320,9 @@ static const struct emu_named font_names[] = {
 static const struct emu_named notify_flags[] = {
     { "slotnr", NOTIFY_slotnr }
 };
+static const struct emu_named codepage_names[] = {
+    { "866", CODEPAGE_866 }, { "mik", CODEPAGE_mik }, { "437", CODEPAGE_437 }
+};
 
 /* What each option takes. One not here takes text that code of its own
  * parses, as display-type does, or else a number. */
@@ -375,7 +378,9 @@ static const struct emu_option_info info[OPT_nr] = {
         .kind = EMU_KIND_number, FLAGS(notify_flags),
         .mask = NOTIFY_volume_mask },
     [OPT_da_report_version] = STRING,
-    [OPT_extend_image] = YES_NO
+    [OPT_extend_image] = YES_NO,
+    [OPT_short_name_codepage] = NAMED(codepage_names),
+    [OPT_detect_utf8_in_short_names] = YES_NO
 };
 #undef VALUES
 #undef FLAGS
