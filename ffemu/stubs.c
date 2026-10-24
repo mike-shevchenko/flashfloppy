@@ -323,6 +323,9 @@ static const struct emu_named notify_flags[] = {
 static const struct emu_named codepage_names[] = {
     { "866", CODEPAGE_866 }, { "mik", CODEPAGE_mik }, { "437", CODEPAGE_437 }
 };
+static const struct emu_named lcd_charset_names[] = {
+    { "a00", LCDCS_a00 }, { "a02", LCDCS_a02 }, { "cyr", LCDCS_cyr }
+};
 
 /* What each option takes. One not here takes text that code of its own
  * parses, as display-type does, or else a number. */
@@ -380,7 +383,8 @@ static const struct emu_option_info info[OPT_nr] = {
     [OPT_da_report_version] = STRING,
     [OPT_extend_image] = YES_NO,
     [OPT_short_name_codepage] = NAMED(codepage_names),
-    [OPT_detect_utf8_in_short_names] = YES_NO
+    [OPT_detect_utf8_in_short_names] = YES_NO,
+    [OPT_lcd_charset] = NAMED(lcd_charset_names)
 };
 #undef VALUES
 #undef FLAGS
