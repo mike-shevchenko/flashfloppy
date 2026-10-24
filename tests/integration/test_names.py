@@ -144,5 +144,71 @@ class NamesImage(fr.Case, unittest.TestCase):
                                  r.report())
 
 
+# A name of Russian letters, Yo, both hard signs and the capital soft sign
+# among them, of a 437 letter that the A00 ROM has and one that it lacks,
+# and of a sign that only A02 and the Cyrillic ROMs have.
+ROM_NAME = "\u0401\u043b\u043a\u0430 \u042a\u044a \u042c\u00e4 \u00e9\u00bd"
+
+
+class RomCharset(fr.Case, unittest.TestCase):
+    """ROM_NAME on a 16x2 LCD of each ROM, by lcd-charset, and on FF OSD."""
+
+    def rows(self, rom, charset=None, ff_cfg=None):
+        """The LCD's rows, then FF OSD's, once the image is in, lcd-charset
+        set in flash as @charset or by FF.CFG @ff_cfg, which resets the
+        firmware when it changes the option."""
+        files = {ROM_NAME + ".img": bytes(737280)}
+        if ff_cfg:
+            files["FF.CFG"] = ff_cfg
+        r = fr.run(
+            "ffemu", ["sleep 6000"] * bool(ff_cfg)
+            + ["wait 10000 log Name:", "sleep 1000", "dump", "osd", "flash"],
+            settings=["display = hd44780-16x2", "lcd-rom = " + rom],
+            flash=["lcd-charset = " + charset] if charset else [],
+            files=files)
+        self.assertWaits(r, 1)
+        rows = [line[1:-1].rstrip() for line in r.lines
+                if line.startswith("|") and line.endswith("|")]
+        self.assertEqual(len(rows), 5, r.report())
+        return rows, r
+
+    def test_a00(self):
+        """Russian by KOI-7, the case kept, Yo as Ye and the small hard sign
+        on 0x7f, the ROM's arrow there; A00's own a umlaut, the base letter
+        of e acute, the full block for one half. FF OSD alike, but for the a
+        umlaut, which its font lacks too, and '?' for one half."""
+        rows, r = self.rows("a00", "a00")
+        self.assertEqual(rows[0], "Elka _\u2190 X\u00e4 e\u2588", r.report())
+        self.assertEqual(rows[3], "Elka _\u2592 Xa e?", r.report())
+
+    def test_cyr(self):
+        """The ROM's Russian letters, Latin ones where they look alike, Latin
+        b for the capital soft sign; its e acute and one half, the base letter
+        of a umlaut."""
+        rows, r = self.rows("cyr", "cyr")
+        self.assertEqual(
+            rows[0], "\u0401\u043b\u043aa \u042a\u044a ba \u00e9\u00bd",
+            r.report())
+        self.assertEqual(rows[3], "Elka _\u2592 Xa e?", r.report())
+
+    def test_ff_cfg(self):
+        """lcd-charset read from FF.CFG, which puts it in flash."""
+        rows, r = self.rows("cyr", ff_cfg="lcd-charset = cyr\n")
+        self.assertEqual(r.flash().get("lcd-charset"), "cyr", r.report())
+        self.assertEqual(
+            rows[0], "\u0401\u043b\u043aa \u042a\u044a ba \u00e9\u00bd",
+            r.report())
+
+    def test_ascii(self):
+        """An ASCII name as it is, whatever the ROM."""
+        r = fr.run(
+            "ffemu", ["wait 10000 log Name:", "sleep 1000", "dump"],
+            settings=["display = hd44780-16x2", "lcd-rom = cyr"],
+            flash=["lcd-charset = cyr"],
+            files={"Game-1 (v2).img": bytes(737280)})
+        self.assertWaits(r, 1)
+        self.assertIn("|Game-1 (v2)     |", r.lines, r.report())
+
+
 if __name__ == "__main__":
     unittest.main()

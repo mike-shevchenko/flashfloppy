@@ -117,6 +117,40 @@ static void emit8(uint8_t **p, uint8_t val, uint8_t signals)
     emit4(p, (val << 4) | signals);
 }
 
+/* The targets that show only their own messages, in ASCII, give them as
+ * they are. */
+#if (TARGET == TARGET_bootloader) || (TARGET == TARGET_bl_update) \
+    || (TARGET == TARGET_io_test)
+#define lcd_char(c) (c)
+#define osd_map_row(q) ((void)0)
+#define lcd_cgram_block(p) ((void)0)
+#else
+/* Character @c of the text as the LCD's ROM shows it. */
+#define lcd_char(c) charset_to_rom((uint8_t)(c), ff_cfg.lcd_charset)
+
+/* Text row @q, lcd_columns long, in place as FF OSD's font shows it. */
+static void osd_map_row(uint8_t *q)
+{
+    unsigned int i;
+
+    for (i = 0; i < lcd_columns; i++)
+        q[i] = charset_to_rom(q[i], CHARSET_osd);
+}
+
+/* A02 has no full block, which charset_to_rom() gives a character that the
+ * ROM cannot show: CGRAM character 0 is one, written by its mirror 0x08. */
+static void lcd_cgram_block(uint8_t **p)
+{
+    unsigned int i;
+
+    if (ff_cfg.lcd_charset != LCDCS_a02)
+        return;
+    emit8(p, CMD_SETCGRADDR, 0);
+    for (i = 0; i < 8; i++)
+        emit8(p, 0x1f, _RS);
+}
+#endif
+
 /* Write a 4-bit nibble over D7-D4 (4-bit bus). */
 static void write4(uint8_t val)
 {

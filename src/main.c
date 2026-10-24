@@ -1185,6 +1185,13 @@ static void read_ff_cfg(void)
             ff_cfg.detect_utf8_in_short_names = yes;
             break;
 
+        case FFCFG_lcd_charset: {
+            const static uint8_t v[] = {
+                LCDCS_a02, LCDCS_cyr, LCDCS_a00 };
+            ff_cfg.lcd_charset = v[word_index(opts.arg, "a02\0" "cyr\0")];
+            break;
+        }
+
         case FFCFG_nav_mode: {
             const static uint8_t v[] = {
                 NAVMODE_native, NAVMODE_indexed, NAVMODE_default };
@@ -1436,10 +1443,12 @@ static void process_ff_cfg_opts(const struct ff_cfg *old)
     if (ff_cfg.ejected_on_startup)
         cfg.ejected = TRUE;
 
-    /* oled-font, display-type: Reinitialise the display subsystem. */
+    /* oled-font, display-type, lcd-charset: Reinitialise the display
+     * subsystem. */
     if ((ff_cfg.oled_font != old->oled_font)
         || (ff_cfg.oled_contrast != old->oled_contrast)
-        || (ff_cfg.display_type != old->display_type))
+        || (ff_cfg.display_type != old->display_type)
+        || (ff_cfg.lcd_charset != old->lcd_charset))
         system_reset(); /* hit it with a hammer */
 }
 
