@@ -2850,20 +2850,25 @@ static struct fview {
       "always off, 255 never",
       { NULL }, false, false },
     { FV_input, 0, "display-scroll-~r~ate", "display-scroll-rate",
-      "Milliseconds per step of a long name scroll, 100..65535: less is "
-      "faster",
+      "Milliseconds per character of a long name scroll, 100..65535: less "
+      "is faster",
       { NULL }, false, false },
     { FV_input, 0, "display-scroll-~p~ause", "display-scroll-pause",
       "Milliseconds a long name scroll rests at each end, 0..65535: 0 "
       "scrolls without rest",
       { NULL }, false, false },
     { FV_input, 0, "nav-scroll-r~a~te", "nav-scroll-rate",
-      "Milliseconds per scroll step while browsing, 0..65535: less is faster",
+      "Milliseconds per character of a scroll while browsing, 0..65535: "
+      "less is faster",
       { NULL }, false, false },
     { FV_input, 0, "nav-scroll-pa~u~se", "nav-scroll-pause",
       "Milliseconds before a long name starts to scroll while browsing, "
       "0..65535",
       { NULL }, false, false },
+    { FV_check, 0, NULL, "display-scroll-by-pixel",
+      "Whether a long name scrolls on an OLED a pixel at a time, not a "
+      "character, at the same speed",
+      { "display-scroll-by-pixel" }, true, false },
     { FV_radio, 1, "nav-~m~ode", "nav-mode",
       "How floppies are found on the USB drive",
       { "default", "indexed", "native" },
@@ -2952,7 +2957,8 @@ static const char * const fd_opts[] = {
     "display-type", "oled-font", "show-filename-ext", "display-order",
     "display-off-secs",
     "display-scroll-rate", "display-scroll-pause", "nav-scroll-rate",
-    "nav-scroll-pause", "nav-mode", "folder-sort", "sort-priority",
+    "nav-scroll-pause", "display-scroll-by-pixel", "nav-mode",
+    "folder-sort", "sort-priority",
     "nav-loop", "show-dir-slash",
     "autoselect-file-secs", "autoselect-folder-secs",
     "indexed-prefix", "twobutton-action", "image-on-startup",
