@@ -98,11 +98,25 @@ static struct oled_shift {
 } oled_shift[2][ARRAY_SIZE(text)];
 
 /* Columns and rows of text. */
-uint8_t lcd_columns, display_rows;
+uint8_t lcd_columns, lcd_rows;
 
 /* Current display mode: Affects row ordering and sizing. */
 uint8_t display_mode = DM_banner;
 #define menu_mode (display_mode == DM_menu)
+#define glyphs_mode (display_mode == DM_glyphs)
+#define error_mode (display_mode >= DM_error)
+
+/* An error screen's rows, the message in the status row: below the image's
+ * name, or alone below a blank row, double height where the display has
+ * room, and alone double height on any OLED. */
+static uint16_t error_order(void)
+{
+    bool_t oled64 = is_oled_display && (oled_height == 64);
+
+    if (display_mode == DM_error_name)
+        return oled64 ? 0x7798 : 0x7710;
+    return oled64 ? 0x779f : is_oled_display ? 0x7779 : 0x7717;
+}
 
 /* Occasionally the I2C/DMA engine seems to get stuck. Detect this with 
  * a timeout timer and unwedge it by calling the I2C error handler. */
@@ -205,6 +219,24 @@ void lcd_write(int col, int row, int min, const char *str)
     IRQ_restore(oldpri);
 }
 
+void lcd_write_glyphs(int row, unsigned int base)
+{
+    unsigned int i;
+    uint32_t oldpri = IRQ_save(I2C_IRQ_PRI);
+
+    memset(text[row], ' ', lcd_columns);
+    for (i = 0; i < 16; i++)
+        text[row][i] = base + i;
+
+    IRQ_restore(oldpri);
+}
+
+unsigned int lcd_shown_rows(void)
+{
+    /* FF OSD alone shows two: the font test gives it no more. */
+    return is_oled_display ? oled_height / 16 : i2c_addr ? lcd_rows : 2;
+}
+
 void lcd_write_shifted(int col, int row, int nr, unsigned int px,
                        const char *str)
 {
@@ -287,7 +319,7 @@ static void oled_glyph(uint8_t *q, char c, unsigned int from,
 static void oled_convert_text_row(const char *pc, const struct oled_shift *s)
 {
     unsigned int i, from, w = lcd_column_pixels();
-    unsigned int px = (display_mode == DM_normal) ? s->px : 0;
+    unsigned int px = ((display_mode == DM_normal) || error_mode) ? s->px : 0;
     uint8_t *q = buffer;
 
     if (w == 6) {
@@ -377,13 +409,18 @@ static void oled_double_width(void)
 
 unsigned int lcd_row_columns(unsigned int row)
 {
+    /* As oled_to_lcd_row() takes display_order on the normal screen, and on
+     * an error screen its double rows by display-error-wide. */
 #ifdef MINIMAL_UI
     /* Only double height in minimal builds. */
     return lcd_columns;
 #else
-    /* As oled_to_lcd_row() takes display_order, on the normal screen. */
-    if (is_oled_display && (display_mode == DM_normal)
-        && (ff_cfg.display_order_wide & (1 << row)))
+    if (!is_oled_display)
+        return lcd_columns;
+    if ((display_mode == DM_normal)
+        ? (ff_cfg.display_order_wide & (1 << row))
+        : (error_mode && ff_cfg.display_error_wide
+           && ((oled_height == 64) || (display_mode == DM_error))))
         return lcd_columns / 2;
     return lcd_columns;
 #endif
@@ -398,9 +435,12 @@ static void oled_to_lcd_row(int in_row)
     bool_t large = FALSE, wide;
     char *pc;
 
-    order = (oled_height == 32) ? 0x7710 : menu_mode ? 0x7903 : 0x7183;
+    order = glyphs_mode ? 0x3210 : (oled_height == 32) ? 0x7710
+        : menu_mode ? 0x7903 : 0x7183;
     if ((ff_cfg.display_order != DORD_default) && (display_mode == DM_normal))
         order = ff_cfg.display_order;
+    else if (error_mode)
+        order = error_order();
 
     for (;;) {
         large = !!(order & DORD_double);
