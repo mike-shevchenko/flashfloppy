@@ -38,7 +38,8 @@ Here is [the original FlashFloppy readme on GitHub](https://github.com/keirf/fla
 Some of these are not in a release yet: they come with the next one.
 
 - **The multi firmware**, described above, with its Apple2 images and both wirings of the phases. Its pull request follows once upstream has taken the smaller ones it builds on.
-- **The open pull requests**: none at the moment; more to come.
+- **The open pull requests**, and others once opened:
+  - [#1116](https://github.com/keirf/flashfloppy/pull/1116): the display's new options: double-width rows, a row of the name with the track, short tracks, Apple2 phases, three-digit tracks on 16 columns, folders as `/NAME`, scrolling by pixel, `display-order` by row letters, and a font test.
 
 ---------------------------------------------------------------------------------------------------
 ## Installing
