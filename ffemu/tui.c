@@ -869,7 +869,7 @@ static void draw_lcd(int y0, int x0, int fw, int style, bool too_small,
         for (r = 0; r < ch; r++) {
             put(y0 + 1 + r, x, cw, panel, "%*s", cw, "");
             for (c = 0; v->on && (c < (int)v->cols); c++) {
-                wchar_t wc = hd44780_unicode(v->rom, v->text[r][c]);
+                wchar_t wc = hd44780_char(v, v->text[r][c]);
                 if ((wc != 0) && (wcwidth(wc) == 1))
                     put_char(y0 + 1 + r, x + 1 + c, panel, wc);
                 else
@@ -3241,13 +3241,16 @@ static const char * const fd_tab_name[FT_nr] = {
 static const char * const fd_places[] = {
     "display-type", "",
     "oled-font", "",
+    "lcd-charset", "",
     "display-order", "",
     "show-filename-ext", "|",
     "autoselect-file-secs", "autoselect-folder-secs", "nav-loop", "",
     "twobutton-action", "",
     "rotary", "",
     "folder-sort", "",
-    "sort-priority", "|",
+    "sort-priority", "",
+    "short-name-codepage", "",
+    "detect-utf8-in-short-names", "|",
     "display-scroll-rate", "display-scroll-pause", "nav-scroll-rate",
         "nav-scroll-pause", "",
     "display-off-secs", "",
@@ -4762,6 +4765,8 @@ static const struct {
     { "display-type", "Type of the display connected" },
     { "display-type suffix", "Options for OLED displays" },
     { "oled-font", "Font of the OLED display" },
+    { "lcd-charset",
+      "Character ROM of the LCD, which names' letters are shown by" },
     { "show-filename-ext", "Whether to show floppy filename extensions" },
     { "display-order",
       "Rows top down: 0=name, 1=status, 2=info, 3=folder, 7=blank, "
@@ -4788,6 +4793,12 @@ static const struct {
     { "sort-priority",
       "Where the folders go in a sorted folder: before the files, after "
       "them, or mixed by name" },
+    { "short-name-codepage",
+      "Code page of the short names that have no long name, as MS-DOS "
+      "writes them" },
+    { "detect-utf8-in-short-names",
+      "Read a short name whose bytes above 0x7f form UTF-8 as UTF-8, as "
+      "Windows with UTF-8 writes it" },
     { "nav-loop",
       "Whether file/folder navigation loops from the last item to the first "
       "one and vice versa" },
@@ -4935,6 +4946,20 @@ static const struct {
     { "display-type", "slow",
       "Options for OLED displays: run the I2C bus slower, if the display "
       "blanks or garbles" },
+    { "short-name-codepage", "866",
+      "Short names in Cyrillic, as a Russian MS-DOS or Windows writes them" },
+    { "short-name-codepage", "mik",
+      "Short names in Cyrillic, as a Bulgarian MS-DOS writes them" },
+    { "short-name-codepage", "437",
+      "Short names in Western European letters, as a US or German MS-DOS "
+      "writes them" },
+    { "lcd-charset", "a00",
+      "The Japanese ROM of most generic modules: Russian by KOI-7, accents "
+      "dropped" },
+    { "lcd-charset", "a02",
+      "The European ROM: accented Latin letters, Russian by KOI-7" },
+    { "lcd-charset", "cyr",
+      "The Cyrillic ROM of MELT, Winstar (CT) and the like: Russian letters" },
     { "twobutton-action", "reverse", "Swap the left and right buttons" },
     { "notify-volume", "slotnr",
       "Beep the floppy number when a floppy is inserted: long beeps count as "

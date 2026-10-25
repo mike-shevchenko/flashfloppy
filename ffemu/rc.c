@@ -652,7 +652,7 @@ void rc_load(void)
 
     config.style = STYLE_braille;
     config.display = DISP_ssd1306_32;
-    config.lcd_rom = LCD_ROM_cyr;
+    config.lcd_rom = LCD_ROM_a00;
     config.oled_synth = false;
     config.mcu = EMU_MCU_at32f415;
     config.osd = true;

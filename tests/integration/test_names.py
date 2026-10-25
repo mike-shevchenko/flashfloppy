@@ -146,8 +146,10 @@ class NamesImage(fr.Case, unittest.TestCase):
 
 # A name of Russian letters, Yo, both hard signs and the capital soft sign
 # among them, of a 437 letter that the A00 ROM has and one that it lacks,
-# and of a sign that only A02 and the Cyrillic ROMs have.
-ROM_NAME = "\u0401\u043b\u043a\u0430 \u042a\u044a \u042c\u00e4 \u00e9\u00bd"
+# of a sign that only A02 and the Cyrillic ROMs have, and of the not sign,
+# which no ROM has.
+ROM_NAME = ("\u0401\u043b\u043a\u0430 \u042a\u044a \u042c\u00e4 "
+            "\u00e9\u00bd\u00ac")
 
 
 class RomCharset(fr.Case, unittest.TestCase):
@@ -175,28 +177,41 @@ class RomCharset(fr.Case, unittest.TestCase):
     def test_a00(self):
         """Russian by KOI-7, the case kept, Yo as Ye and the small hard sign
         on 0x7f, the ROM's arrow there; A00's own a umlaut, the base letter
-        of e acute, the full block for one half. FF OSD alike, but for the a
-        umlaut, which its font lacks too, and '?' for one half."""
+        of e acute, the full block for one half and the not sign. FF OSD
+        alike, but for the a umlaut, which its font lacks too, and '?' for
+        the signs."""
         rows, r = self.rows("a00", "a00")
-        self.assertEqual(rows[0], "Elka _\u2190 X\u00e4 e\u2588", r.report())
-        self.assertEqual(rows[3], "Elka _\u2592 Xa e?", r.report())
+        self.assertEqual(rows[0], "Elka _\u2190 X\u00e4 e\u2588\u2588",
+                         r.report())
+        self.assertEqual(rows[3], "Elka _\u2592 Xa e??", r.report())
+
+    def test_a02(self):
+        """Russian by KOI-7 as on a00, the ROM's house on 0x7f; A02's own a
+        umlaut, e acute and one half; the not sign as the full block that
+        the firmware makes in CGRAM 0 and shows by its mirror 0x08."""
+        rows, r = self.rows("a02", "a02")
+        self.assertEqual(
+            rows[0], "Elka _\u2302 X\u00e4 \u00e9\u00bd\u2588", r.report())
+        self.assertEqual(rows[3], "Elka _\u2592 Xa e??", r.report())
 
     def test_cyr(self):
         """The ROM's Russian letters, Latin ones where they look alike, Latin
         b for the capital soft sign; its e acute and one half, the base letter
-        of a umlaut."""
+        of a umlaut, the ROM's full block for the not sign."""
         rows, r = self.rows("cyr", "cyr")
         self.assertEqual(
-            rows[0], "\u0401\u043b\u043aa \u042a\u044a ba \u00e9\u00bd",
+            rows[0],
+            "\u0401\u043b\u043aa \u042a\u044a ba \u00e9\u00bd\u2588",
             r.report())
-        self.assertEqual(rows[3], "Elka _\u2592 Xa e?", r.report())
+        self.assertEqual(rows[3], "Elka _\u2592 Xa e??", r.report())
 
     def test_ff_cfg(self):
         """lcd-charset read from FF.CFG, which puts it in flash."""
         rows, r = self.rows("cyr", ff_cfg="lcd-charset = cyr\n")
         self.assertEqual(r.flash().get("lcd-charset"), "cyr", r.report())
         self.assertEqual(
-            rows[0], "\u0401\u043b\u043aa \u042a\u044a ba \u00e9\u00bd",
+            rows[0],
+            "\u0401\u043b\u043aa \u042a\u044a ba \u00e9\u00bd\u2588",
             r.report())
 
     def test_ascii(self):

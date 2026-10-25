@@ -103,7 +103,7 @@ static void lcd_row(const struct lcd_view *cv, unsigned int y, char *row)
     unsigned int x, n = 0;
 
     for (x = 0; x < cv->cols; x++) {
-        unsigned int cp = hd44780_unicode(cv->rom, cv->text[y][x]);
+        unsigned int cp = hd44780_char(cv, cv->text[y][x]);
         n += utf8(row + n, !cv->on ? ' ' : cp ? cp : LCD_MISSING);
     }
     row[n] = '\0';

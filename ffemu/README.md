@@ -169,26 +169,31 @@ The firmware sizes an LCD by `display-type`, e.g. `display-type = lcd-20x04`,
 and drives one that it finds with `auto` as a 16x2; the LCD is drawn dark on
 its lit panel, in the color of the settings (white on blue, dark or bright),
 the panel dark gray while the backlight is off. Its character ROM is chosen in
-the same dialog, and kept as `lcd-rom`: CYR, the default, Latin and upper- and
+the same dialog, and kept as `lcd-rom`, by the values of the firmware's
+`lcd-charset`: `lcd-rom` is the ROM that the emulated module has, `lcd-charset`
+the one that the firmware is told of. They are `a00`, the default, Latin and
+Japanese, which most modules have; `a02`, Latin, its accented letters and some
+Greek, as Hitachi's datasheet draws it; or `cyr`, Latin and upper- and
 lower-case Cyrillic, page 0 of MELT's modules, whose codes the other Cyrillic
-modules share, or A00, Latin and Japanese, which most other modules have. Each
-is a header, `lcd_font_cyr.h` or `lcd_font_a00.h`, holding the glyph of every
-code it defines, each labeled, and the Unicode character it stands for. The
-braille and half block renderings draw the glyphs, the half blocks on a
-terminal of 16 colors or more with the unlit dots of each character faint, in
-the panel's color of the other brightness, as a real panel shows them; the
-ASCII rendering prints the characters, as `dump` does in UTF-8, a blank glyph
-as a space, and a magenta white square for a code that stands for none (a glyph
-no single character matches) or for a character wider than a cell; a
-user-defined code is a checkerboard in the other renderings. Neither ROM is
-ASCII throughout: CYR has a cent sign, small numbers, a return arrow and a
-pencil at 0x5c and 0x7b to 0x7f, where `\ { | } ~` are, and A00 a yen sign at
-0x5c and arrows at 0x7e and 0x7f, where `\` and `~` are. The user-defined
-characters, which the firmware never sets, are not emulated. For an OLED, the
-dialog's check box "Made from 6x13, bold" draws the 8x16 font as the firmware
-built with `oled_font_8x16_synth=y` does, which saves flash by leaving the 8x16
-font out and making each glyph from the 6x13 one, bold with a second copy a
-column to the right; it takes effect at once and is kept as
+modules share. Each is a header, `lcd_font_a00.h`, `lcd_font_a02.h` or
+`lcd_font_cyr.h`, holding the glyph of every code it defines, each labeled, and
+the Unicode character it stands for. The braille and half block renderings draw
+the glyphs, the half blocks on a terminal of 16 colors or more with the unlit
+dots of each character faint, in the panel's color of the other brightness, as
+a real panel shows them; the ASCII rendering prints the characters, as `dump`
+does in UTF-8, a blank glyph as a space, and a magenta white square for a code
+that stands for none (a glyph no single character matches) or for a character
+wider than a cell; a code without a glyph is a checkerboard in the other
+renderings. The user-defined characters of CGRAM are drawn as the firmware sets
+them, which it does for `a02`, giving it the full block that the ROM lacks; the
+text renderings show one of all dots set as a full block. No ROM is ASCII
+throughout: `cyr` has a cent sign, small numbers, a return arrow and a pencil
+at 0x5c and 0x7b to 0x7f, where `\ { | } ~` are, `a00` a yen sign at 0x5c and
+arrows at 0x7e and 0x7f, where `\` and `~` are, and `a02` a house at 0x7f. For
+an OLED, the dialog's check box "Made from 6x13, bold" draws the 8x16 font as
+the firmware built with `oled_font_8x16_synth=y` does, which saves flash by
+leaving the 8x16 font out and making each glyph from the 6x13 one, bold with a
+second copy a column to the right; it takes effect at once and is kept as
 `oled-8x16 = font | synth`.
 
 The firmware of an AT32F435 board has a display driver of its own, for that
@@ -594,8 +599,8 @@ with the host C library. Only `emu.h` is shared between the two.
   data; the drive's outputs to the computer (INDEX, TRK0, WRPROT, RDY, DSKCHG)
   are set by the firmware but not shown.
 - AT32F435 boards but for their display driver.
-- The LCD's user-defined characters, its cursor, and a PCF8574A backpack, at
-  0x3f, which the firmware would find just as well.
+- The LCD's cursor, and a PCF8574A backpack, at 0x3f, which the firmware would
+  find just as well.
 - The firmware's writes reaching the host files, the image or the disk:
   `IMAGE_A.CFG`, `FLASH.DMP` and the like are kept aside until the drive is
   removed.
