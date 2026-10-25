@@ -3,7 +3,7 @@
 # Lay out the firmware version for the 7-segment display: the frames that
 # it shows, one a second, on 3 digits and on 2.
 #
-# Written & released by Mike Shevchenko <mike.shevchenko.kz@gmail.com>
+# Written & released by Mike Shevchenko <mike.shevchenko@gmail.com>
 #
 # This is free and unencumbered software released into the public domain.
 # See the file COPYING for more details, or visit <http://unlicense.org>.
