@@ -138,6 +138,7 @@ static void insert(bool keep_writes)
     if (info.writes_lost)
         host_log("USB drive: the files have changed, so what the firmware "
                  "wrote before the power cycle is dropped");
+    usb_log_lacking();
 }
 
 void ui_action(int act)
@@ -251,13 +252,17 @@ const char * const mcu_help[MCU_nr] = {
     [EMU_MCU_at32f435] = "That of AT32F435 boards: its I2C is of a newer kind"
 };
 
-void ui_usb_set_fat16(bool fat16)
+void ui_usb_set_drive(bool fat16, int sfn, bool lfn, int by)
 {
     struct usb_info info;
 
-    if (fat16 == config.usb_fat16)
+    if ((fat16 == config.usb_fat16) && (sfn == config.usb_sfn)
+        && (lfn == config.usb_lfn) && (by == config.usb_by))
         return;
     config.usb_fat16 = fat16;
+    config.usb_sfn = sfn;
+    config.usb_lfn = lfn;
+    config.usb_by = by;
     rc_save();
     usb_get_info(&info);
     if (info.inserted && (info.kind == USB_dir))
@@ -285,6 +290,11 @@ void ui_fdd_set_type(int type)
     emu_in_fdd = EMU_FDD_SEL
         | ((type == EMU_FDD_TYPE_apple2) ? 0 : EMU_FDD_DIR);
     phase_pos = 0;
+}
+
+void ui_usb_set_fat16(bool fat16)
+{
+    ui_usb_set_drive(fat16, config.usb_sfn, config.usb_lfn, config.usb_by);
 }
 
 bool ui_fdd_has(int act)

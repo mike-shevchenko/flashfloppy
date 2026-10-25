@@ -264,11 +264,25 @@ void led_art(const struct led_view *v, char art[3][16]);
 /* What the USB drive is made from. */
 enum { USB_dir, USB_image, USB_disk };
 
+/* The code page of the short names of a drive made from a directory, and
+ * the system whose rules make them, by their names in the settings file. */
+enum { USB_SFN_866, USB_SFN_437, USB_SFN_mik, USB_SFN_utf8, USB_SFN_nr };
+extern const char * const usb_sfn_name[USB_SFN_nr];
+enum { USB_BY_windows, USB_BY_linux, USB_BY_nr };
+extern const char * const usb_by_name[USB_BY_nr];
+/* That of the system the program runs on. */
+#ifdef __CYGWIN__
+#define USB_BY_default USB_BY_windows
+#else
+#define USB_BY_default USB_BY_linux
+#endif
+
 struct usb_info {
     bool inserted;
     uint8_t kind; /* USB_* */
     unsigned int nr_files, nr_dirs, nr_skipped;
     unsigned int nr_case_dups; /* left out: as names they equal others */
+    unsigned int nr_lacking;   /* names that lose characters in short names */
     unsigned int fat_bits;     /* of a drive made from a directory */
     /* Left out of FAT16, as copying them would leave them: entries of the
      * full root folder, and files of the full drive. */
@@ -300,6 +314,9 @@ void usb_remove(void);
  * next insertion would give the firmware. */
 void usb_eject_ff_cfg(void);
 void usb_get_info(struct usb_info *info);
+/* Logs the names of the drive just made from a directory whose short names
+ * lose characters, the first such character of each, up to a hundred. */
+void usb_log_lacking(void);
 /* The text of FF.CFG on a drive from an image or a disk, read when it was
  * inserted; NULL for a directory, or if it has none. */
 const char *usb_ff_cfg_text(void);
@@ -471,6 +488,9 @@ struct config {
     bool osd_braille;       /* the OSD pane draws FF OSD's pixels */
     bool usb_fat16;         /* a USB drive made from a directory is FAT16 */
     int fdd_type;           /* EMU_FDD_TYPE_*: the computer on the cable */
+    int usb_sfn;            /* USB_SFN_*: the code page of its short names */
+    bool usb_lfn;           /* it has long names besides */
+    int usb_by;             /* USB_BY_*: whose rules make its short names */
     int display_color;      /* a curses color, plus 8 if bright */
     unsigned int hold_ms;   /* how long a key press holds a button down */
     char path[512];         /* where the settings file is, or would be */
@@ -559,8 +579,12 @@ enum {
     FDD_ACT_nr
 };
 extern const char * const fdd_action_name[FDD_ACT_nr];
-/* Makes a USB drive made from a directory FAT16 if @fat16, else FAT32, in
- * the settings, and inserts such a drive again if one is in. */
+/* Makes a USB drive made from a directory FAT16 if @fat16, else FAT32, its
+ * short names' code page @sfn, USB_SFN_*, with long names if @lfn, by the
+ * rules of @by, USB_BY_*, in the settings, and inserts such a drive again
+ * if one is in and anything changed. */
+void ui_usb_set_drive(bool fat16, int sfn, bool lfn, int by);
+/* Changes the file system alone. */
 void ui_usb_set_fat16(bool fat16);
 /* Whether the firmware's target has action @act. */
 /* Makes the computer on the cable one of FDD type @type, EMU_FDD_TYPE_*, with

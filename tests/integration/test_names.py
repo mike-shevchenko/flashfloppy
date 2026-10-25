@@ -1,7 +1,8 @@
 """Names of files and folders that are not ASCII, which the firmware holds in
 the character set of inc/charset.h: a folder entered and an image mounted by
-their long names in Cyrillic, and names drawn on the OLED in each font; and
-the drive of mk_names_image.py, whose names come in every encoding."""
+their long names in Cyrillic, and names drawn on the OLED in each font; the
+drive of mk_names_image.py, whose names come in every encoding; and the short
+names of ffemu's drive made from a folder, in each code page."""
 
 import os
 import re
@@ -61,13 +62,12 @@ def name_cells(r, font, nr):
 class Names(fr.Case, unittest.TestCase):
 
     def test_cyrillic_long_names(self):
-        """The image mounted by its long name, which the console prints in
-        the set's bytes, KOI8-R's, each a replacement character to the
-        harness, which reads UTF-8."""
+        """The image mounted by its long name, which the console shows in
+        UTF-8."""
         r = fr.run("ffemu", ["wait 15000 log Name:", "log"], files=IGRA)
         self.assertWaits(r, 1)
-        self.assertIn("Name: '%s' Type: img" % ("\ufffd" * 4), r.stdout,
-                      r.report())
+        self.assertIn("Name: '\u0438\u0433\u0440\u0430' Type: img",
+                      r.stdout, r.report())
 
     def test_oled_russian(self):
         """Russian letters by the font's own glyphs, Yo's two among them,
@@ -98,6 +98,120 @@ class Names(fr.Case, unittest.TestCase):
         self.assertEqual(glyph("6x13", 0x20a7), glyph("6x13", 0x25a1))
         self.assertNotEqual(glyph("8x16", 0x20a7), glyph("8x16", 0x25a1))
 
+
+# Yolka, Yo in it, which MIK lacks; Lisa, which MIK holds; Kaese with a
+# umlaut, which 437 holds and 866 does not.
+YOLKA = "\u0401\u043b\u043a\u0430"
+LISA = "\u041b\u0438\u0441\u0430"
+KAESE = "K\u00e4se"
+
+
+class ShortNames(fr.Case, unittest.TestCase):
+    """The short names of ffemu's drive made from a folder, without long
+    names, in the code page of usb-drive-sfn and by the rules of
+    usb-drive-sfn-writing: the name that the firmware mounts, reading them
+    in the code page of short-name-codepage, or as UTF-8 unless
+    detect-utf8-in-short-names says no; and the console's lines on names
+    whose short names lose characters."""
+
+    def mounted(self, name, sfn, by="linux", page=None, more=(),
+                flash=()):
+        """The name of the image that the firmware mounts from a drive of
+        image @name, short names in @sfn by @by's rules, read in code page
+        @page, or the default, with @flash's options too; and the run."""
+        r = fr.run("ffemu", ["wait 15000 log Name:", "log"] + list(more),
+                   settings=["usb-drive-lfn = no", "usb-drive-sfn = " + sfn,
+                             "usb-drive-sfn-writing = " + by],
+                   flash=(["short-name-codepage = " + page] if page else [])
+                   + list(flash),
+                   files={name + ".img": bytes(737280)})
+        self.assertWaits(r, 1)
+        m = re.search(r"Name: '([^']*)' Type:", r.stdout)
+        self.assertIsNotNone(m, r.report())
+        return m.group(1), r
+
+    def test_866(self):
+        """866 read as 866, the default of both: the name in capitals."""
+        name, r = self.mounted(YOLKA, "866")
+        self.assertEqual(name, "\u0401\u041b\u041a\u0410", r.report())
+
+    def test_866_read_as_437(self):
+        """866 read as 437: 437's characters at its bytes, '?' for Yo's,
+        which 437 has as box drawing."""
+        name, r = self.mounted(YOLKA, "866", page="437")
+        self.assertEqual(name, "?\u00ef\u00e8\u00c7", r.report())
+
+    def test_437_read_as_866(self):
+        """437 read as 866: a Russian O in place of the umlauted A."""
+        name, r = self.mounted(KAESE, "437")
+        self.assertEqual(name, "K\u041eSE", r.report())
+        name, r = self.mounted(KAESE, "437", page="437")
+        self.assertEqual(name, "K\u00c4SE", r.report())
+
+    def test_utf8(self):
+        """UTF-8 read as UTF-8 whatever short-name-codepage says."""
+        for page in ("866", "437"):
+            with self.subTest(page=page):
+                name, r = self.mounted(YOLKA, "utf8", page=page)
+                self.assertEqual(name, "\u0401\u041b\u041a\u0410",
+                                 r.report())
+
+    def test_utf8_detection_off(self):
+        """UTF-8 read in 866 with detect-utf8-in-short-names = no: its lead
+        bytes, box drawing there, as '?', its other bytes as letters."""
+        name, r = self.mounted(YOLKA, "utf8", page="866",
+                               flash=["detect-utf8-in-short-names = no"])
+        self.assertEqual(name, "?\u0411?\u042b?\u042a?\u0420", r.report())
+
+    def test_mik(self):
+        """MIK read as MIK; Yo, which it lacks, as '_' with a tail."""
+        name, r = self.mounted(LISA, "mik", page="mik")
+        self.assertEqual(name, "\u041b\u0418\u0421\u0410", r.report())
+        name, r = self.mounted(YOLKA, "mik", page="mik")
+        self.assertEqual(name, "_\u041b\u041a\u0410~1", r.report())
+
+    def test_systems(self):
+        """An umlauted a in 866: Windows writes A, Linux '_' with a tail."""
+        name, r = self.mounted(KAESE, "866", by="windows")
+        self.assertEqual(name, "KASE", r.report())
+        name, r = self.mounted(KAESE, "866", by="linux")
+        self.assertEqual(name, "K_SE~1", r.report())
+
+    def test_script(self):
+        """The script's commands for the settings, each inserting the drive
+        again, which the status line then names; its line of the drive names
+        the image mounted in UTF-8, the 437 short name read as 866."""
+        inserted = "wait 15000 log USB drive inserted"
+        r = fr.run("ffemu", ["wait 15000 log Name:", "usb-drive-sfn 437",
+                             inserted, "usb-drive-sfn-writing windows",
+                             inserted, "usb-drive-lfn no", inserted,
+                             "wait 15000 log Name:", "status"],
+                   settings=["usb-drive-sfn-writing = linux"],
+                   files={KAESE + ".img": bytes(737280)})
+        self.assertWaits(r, 5)
+        self.assertIn("usb: inserted, FAT32, short names in 437 by windows "
+                      "rules, no long names, ", r.stdout, r.report())
+        self.assertIn(", floppy K\u041eSE.img\n", r.stdout, r.report())
+
+    def test_log(self):
+        """A line for a name whose short name loses a character, with the
+        first such character, and none for one that keeps them all."""
+        name, r = self.mounted(YOLKA, "437")
+        self.assertIn('USB drive: "%s.img" has U+0401, which short names '
+                      'in 437 lack' % YOLKA, r.stdout, r.report())
+        name, r = self.mounted(YOLKA, "866")
+        self.assertNotIn("which short names", r.stdout, r.report())
+
+    def test_log_limit(self):
+        """A hundred such lines at most, then their count."""
+        files = {"%s%03d.img" % (YOLKA, i): bytes(1) for i in range(103)}
+        r = fr.run("ffemu", ["wait 10000 log more names", "log"],
+                   settings=["usb-drive-sfn = 437"], files=files)
+        self.assertWaits(r, 1)
+        self.assertEqual(r.stdout.count("which short names in 437 lack"),
+                         100, r.report())
+        self.assertIn("USB drive: 3 more names that lose characters in "
+                      "short names in 437", r.stdout, r.report())
 
 class NamesImage(fr.Case, unittest.TestCase):
     """mk_names_image.py's drive, with the short-name-codepage that each
