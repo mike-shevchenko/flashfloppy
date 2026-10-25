@@ -91,11 +91,41 @@ void _exti_route(unsigned int px, unsigned int pin)
  * Serial console: src/console.c. Output goes to the log pane.
  */
 
+/* Text @in of the firmware, its names in its character set, of charset.h,
+ * into @out in UTF-8, which has room for three bytes for each of @in's. */
+static void utf8_of_text(const char *in, char *out)
+{
+    const char *p;
+    char *q = out;
+
+    for (p = in; *p != '\0'; p++) {
+        unsigned int u = (uint8_t)*p;
+        if (u >= 0x80) {
+            u = ff_oem2uni(u, 0);
+            if (u == 0)
+                u = '?';
+        }
+        if (u < 0x80) {
+            *q++ = u;
+        } else if (u < 0x800) {
+            *q++ = 0xc0 | (u >> 6);
+            *q++ = 0x80 | (u & 0x3f);
+        } else {
+            *q++ = 0xe0 | (u >> 12);
+            *q++ = 0x80 | ((u >> 6) & 0x3f);
+            *q++ = 0x80 | (u & 0x3f);
+        }
+    }
+    *q = '\0';
+}
+
 int vprintk(const char *format, va_list ap)
 {
-    char str[128];
+    char str[128], out[3 * sizeof(str)];
     int n = vsnprintf(str, sizeof(str), format, ap);
-    emu_log(str);
+
+    utf8_of_text(str, out);
+    emu_log(out);
     return n;
 }
 
@@ -1077,16 +1107,18 @@ bool_t fw_floppy_handle(void);
 void fw_floppy_insert(unsigned int unit, struct slot *slot);
 void fw_floppy_cancel(void);
 
-/* The image mounted, for the Status window; "" if none. Its name alone,
- * its extension and its size, for the IMG.CFG window. */
-static char image_name[64], image_base[64], image_ext[8];
+/* The image mounted, for the Status window, in UTF-8; "" if none. Its name
+ * alone, its extension and its size, for the IMG.CFG window. */
+static char image_name[3 * 64], image_base[64], image_ext[8];
 static unsigned int image_size;
 
 void floppy_insert(unsigned int unit, struct slot *slot)
 {
+    char name[64];
+
     fw_floppy_insert(unit, slot);
-    snprintf(image_name, sizeof(image_name), "%s.%s", slot->name,
-             slot->type);
+    snprintf(name, sizeof(name), "%s.%s", slot->name, slot->type);
+    utf8_of_text(name, image_name);
     snprintf(image_base, sizeof(image_base), "%s", slot->name);
     snprintf(image_ext, sizeof(image_ext), "%s", slot->type);
     image_size = slot->size;

@@ -44,7 +44,8 @@ static const char * const color_name[8] = {
 #define BRIGHT "bright-"
 
 enum { SET_style, SET_display_color, SET_hold_ms, SET_display, SET_lcd_rom,
-       SET_oled_8x16, SET_mcu, SET_osd, SET_osd_style, SET_usb_fat, SET_nr };
+       SET_oled_8x16, SET_mcu, SET_osd, SET_osd_style, SET_usb_fat,
+       SET_usb_sfn, SET_usb_lfn, SET_usb_by, SET_nr };
 
 static const struct setting {
     const char *name, *comment;
@@ -96,7 +97,20 @@ static const struct setting {
         "(as a drive of up to 2 GB may have it, its root folder of 512 "
         "entries; what does not fit is left out, as copying would leave "
         "it). Key 8, which inserts such a drive again; else it takes "
-        "effect at the next insertion." }
+        "effect at the next insertion." },
+    [SET_usb_sfn] = {
+        "usb-drive-sfn",
+        "Code page of the short names of such a drive: 866, 437, mik "
+        "(Bulgarian DOS) or utf8, as Windows at OEM code page 65001 "
+        "(UTF-8) writes them. Key 8." },
+    [SET_usb_lfn] = {
+        "usb-drive-lfn",
+        "Whether such a drive has long names beside the short ones: yes, or "
+        "no, as MS-DOS leaves a drive but for numeric tails. Key 8." },
+    [SET_usb_by] = {
+        "usb-drive-sfn-writing",
+        "Whose rules make the short names of such a drive: windows or "
+        "linux; utf8 ones are always Windows'. Key 8." }
 };
 
 /* The value of setting @set as the file has it, into @buf. */
@@ -133,6 +147,15 @@ static const char *value_of(int set, char *buf, size_t size)
         break;
     case SET_usb_fat:
         snprintf(buf, size, "%s", config.usb_fat16 ? "fat16" : "fat32");
+        break;
+    case SET_usb_sfn:
+        snprintf(buf, size, "%s", usb_sfn_name[config.usb_sfn]);
+        break;
+    case SET_usb_lfn:
+        snprintf(buf, size, "%s", config.usb_lfn ? "yes" : "no");
+        break;
+    case SET_usb_by:
+        snprintf(buf, size, "%s", usb_by_name[config.usb_by]);
         break;
     }
     return buf;
@@ -324,6 +347,25 @@ static bool parse_line(char *line)
             return false;
         config.usb_fat16 = !strcmp(value, "fat16");
         return true;
+    case SET_usb_sfn:
+        for (i = 0; i < USB_SFN_nr; i++)
+            if (!strcmp(value, usb_sfn_name[i])) {
+                config.usb_sfn = i;
+                return true;
+            }
+        return false;
+    case SET_usb_lfn:
+        if (strcmp(value, "yes") && strcmp(value, "no"))
+            return false;
+        config.usb_lfn = !strcmp(value, "yes");
+        return true;
+    case SET_usb_by:
+        for (i = 0; i < USB_BY_nr; i++)
+            if (!strcmp(value, usb_by_name[i])) {
+                config.usb_by = i;
+                return true;
+            }
+        return false;
     }
 
     return false;
@@ -643,6 +685,9 @@ void rc_load(void)
     config.display_color = 8 | 6; /* bright cyan */
     config.hold_ms = 150;
     config.usb_fat16 = false;
+    config.usb_sfn = USB_SFN_866;
+    config.usb_lfn = true;
+    config.usb_by = USB_BY_default;
 
     if ((xdg != NULL) && (xdg[0] != '\0'))
         snprintf(config.path, sizeof(config.path),

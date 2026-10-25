@@ -61,7 +61,7 @@ HOST_SRCS := ft_main.c dir_drive.c
 FW_OBJS := $(patsubst %.c,$(OUT)/fw/%.o,$(FW_SRCS))
 FW_OBJS += $(patsubst %.c,$(OUT)/test/%.o,$(TEST_SRCS))
 HOST_OBJS := $(patsubst %.c,$(OUT)/host/%.o,$(HOST_SRCS))
-HOST_OBJS += $(OUT)/host/fatimg.o
+HOST_OBJS += $(OUT)/host/fatimg.o $(OUT)/host/sfn_cp.o
 
 # As in ffemu/Makefile.
 FW_CFLAGS := -std=gnu99 -O1 -g -funsigned-char -fno-builtin
@@ -121,11 +121,11 @@ $(OUT)/host/%.o: $(TESTS)/%.c
 	$(Q)$(CC) $(HOST_CFLAGS) -c $< -o $@
 
 # As ffemu/Makefile compiles its host half.
-$(OUT)/host/dir_drive.o $(OUT)/host/fatimg.o: \
+$(OUT)/host/dir_drive.o $(OUT)/host/fatimg.o $(OUT)/host/sfn_cp.o: \
     HOST_CFLAGS += -O2 -D_GNU_SOURCE -iquote $(EMU)
 
-$(OUT)/host/fatimg.o: $(EMU)/fatimg.c
-	@echo CC ffemu/fatimg.c
+$(OUT)/host/fatimg.o $(OUT)/host/sfn_cp.o: $(OUT)/host/%.o: $(EMU)/%.c
+	@echo CC ffemu/$*.c
 	@mkdir -p $(dir $@)
 	$(Q)$(CC) $(HOST_CFLAGS) -c $< -o $@
 

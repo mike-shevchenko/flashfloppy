@@ -112,22 +112,35 @@ the drive has that folder, even when that one is missing, else the one in the
 root; names match in any letter case.
 
 A drive made from a directory is meant to be what the firmware would find on a
-real drive with those files copied to it, so the FAT structures follow the
-system that ffemu runs on: Windows when built for Cygwin/MSYS2, Linux
-otherwise.
+real drive with those files copied to it, so the FAT structures follow a system
+that copies them: Windows or Linux, as `usb-drive-sfn-writing` in the settings
+or the Externals dialog says, by default the system that ffemu runs on (Windows
+when built for Cygwin/MSYS2).
 
-- Short (8.3) names: Windows writes them in the OEM code page of the system
-  (`GetOEMCP()`, e.g. 866 on a Russian Windows, or UTF-8 where "Use Unicode
-  UTF-8 for worldwide language support" is on), with the tails `~1` to `~4` and
-  then a hash of the long name, as its FAT driver does. Linux writes them in
-  code page 437, the default of vfat, with the tails `~1` to `~9` and then a
-  random number, which ffemu replaces with a hash of the long name so that the
-  volume is the same on every start.
+- Short (8.3) names: in the code page that `usb-drive-sfn` names, 866 by
+  default, 437, MIK (the Bulgarian DOS code page) or UTF-8, each character as
+  the system writes it, which was measured by having each write a file for
+  every character of the Basic Multilingual Plane. Windows (10, at OEM code
+  pages 437, 866 and 65001) writes a stand-in for many characters the code page
+  lacks, such as `A` for an umlauted a at 866, `_` where the stand-in may not
+  be in a short name, and drops the rest, with the tails `~1` to `~4` and then
+  a hash of the long name, as its FAT driver does. Linux (vfat, mounted with
+  `codepage=437` or `866`) writes `_` for a character the code page lacks, with
+  the tails `~1` to `~9` and then a random number, which ffemu replaces with a
+  hash of the long name so that the volume is the same on every start. UTF-8
+  short names, which only Windows writes, follow Windows' rules whatever the
+  setting; MIK, which neither system has, keeps its alphabet and writes `_` for
+  anything else. On insertion, the console lists each name whose short name
+  loses a character, with the first such character's code point, up to a
+  hundred names.
 - Long names: Windows writes none for a name that is a valid short name in one
   letter case per part, such as `readme.txt` or `README.txt`, and keeps the
   case in the entry instead; Linux writes one for any such name that is not all
   in capitals. A firmware that cannot convert a long name to its code page
   falls back to the short name, so the short names matter for non-ASCII names.
+  With `usb-drive-lfn = no` the drive has none, as MS-DOS leaves a drive: short
+  names alone, in capitals, but for the numeric tails of names that 8.3 cannot
+  hold, which no DOS wrote.
 - Attributes: read-only from the host file (on Windows its R attribute, on
   Linux no write permission for anyone, which `cp -p` and copying file managers
   carry over to vfat, plain `cp` not), and on Windows also hidden and system.
@@ -481,6 +494,8 @@ or `latch`, or on the floppy interface `sel`, `write`, `motor`, `dir`, `step`
 or `side` for Shugart, and `sel`, `write`, `phase-in`, `phase-out` or `release`
 for Apple2, `usb-fat <fat32|fat16>`, which sets the file system of a drive made
 from a directory and inserts such a drive again as the Externals dialog does,
+likewise `usb-drive-sfn <866|437|mik|utf8>`, `usb-drive-lfn <yes|no>` and
+`usb-drive-sfn-writing <windows|linux>` for its names,
 `sleep <ms>`, `dump` (the display as text: an LCD as its rows of characters
 between bars, a 7-segment display as its digits drawn with `_` and `|` in
 three rows, a lit point as `.`), `log` (the firmware's console output so far),
@@ -574,4 +589,3 @@ with the host C library. Only `emu.h` is shared between the two.
 - The firmware's writes reaching the host files, the image or the disk:
   `IMAGE_A.CFG`, `FLASH.DMP` and the like are kept aside until the drive is
   removed.
-- A setting for the code page of short names, in place of the system's.

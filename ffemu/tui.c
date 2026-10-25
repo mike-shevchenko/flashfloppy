@@ -182,15 +182,20 @@ static const char * const df_label[DF_nr] = {
     [DF_synth] = "OLED 8x16 ~f~ont",
     [DF_mcu] = "Display driver of ~M~CU",
 };
-/* The Externals dialog's file system, 1 for FAT16, and whether FF OSD is
- * fitted, and the places of its focus. */
-static int dialog_usb_fat;
-static bool dialog_osd;
-enum { EF_fat, EF_osd, EF_drive, EF_ok, EF_cancel, EF_nr };
+/* The Externals dialog's file system, 1 for FAT16, its short names' code
+ * page, long names and whose rules make them, whether FF OSD is fitted, and
+ * the places of its focus. */
+static int dialog_usb_fat, dialog_usb_sfn, dialog_usb_by;
+static bool dialog_usb_lfn, dialog_osd;
+enum { EF_fat, EF_sfn, EF_lfn, EF_by, EF_osd, EF_drive, EF_ok, EF_cancel,
+       EF_nr };
 /* The Externals dialog's labels, by the control each names, `~` around the
  * letter that moves the focus to it. */
 static const char * const ef_label[EF_nr] = {
     [EF_fat] = "File ~s~ystem of a USB drive made from a directory",
+    [EF_sfn] = "Code page of USB drive short ~n~ames",
+    [EF_lfn] = "~L~ong names",
+    [EF_by] = "Short names ~w~ritten by the rules of",
     [EF_osd] = "FF ~O~SD: the display's text over the host's video",
 };
 /* What the drive button wrote, its path between MSG_USER marks, on the
@@ -2501,13 +2506,24 @@ static const char *drive_caption(bool *enabled)
 }
 
 /* What the device is connected to, each as radio buttons: the file system of
- * a USB drive made from a directory; and FF OSD, as a check box. Below them
- * the drive button, which saves the drive as an image or unpacks an image
- * drive, into ffemu's state folder. */
+ * a USB drive made from a directory, its short names' code page, long names
+ * as a check box, and whose rules make them; and FF OSD, as a check box.
+ * Below them the drive button, which saves the drive as an image or unpacks
+ * an image drive, into ffemu's state folder. */
 static void draw_externals_dialog(void)
 {
     static const char * const fat_label[2] = {
         "FAT32", "FAT16: up to 2 GB, a root folder of 512 entries"
+    };
+    static const char * const sfn_label[USB_SFN_nr] = {
+        [USB_SFN_866] = "866: Russian, as DOS and Windows have it",
+        [USB_SFN_437] = "437: US and Western European",
+        [USB_SFN_mik] = "MIK: Bulgarian DOS",
+        [USB_SFN_utf8] =
+            "UTF-8: as Windows at OEM code page 65001 (UTF-8) writes"
+    };
+    static const char * const by_label[USB_BY_nr] = {
+        [USB_BY_windows] = "Windows", [USB_BY_linux] = "Linux, its vfat"
     };
     int w = 68, h = 7, y, x, i, row;
     char caption[40];
@@ -2516,8 +2532,11 @@ static void draw_externals_dialog(void)
 
     /* The frame, its empty first row, the buttons and the row of what the
      * drive button wrote, then each cluster's label, options and empty row,
-     * and its note below them all. */
+     * and the notes below them all. */
     h += 1 + 2 + 1 + 1;
+    h += 1 + USB_SFN_nr + 1;
+    h += 1 + 1 + 1;
+    h += 1 + USB_BY_nr + 1;
     h += 1 + 1 + 1 + 1;
     dialog_box(w, h, "Externals", &y, &x);
     row = y + 2;
@@ -2529,6 +2548,28 @@ static void draw_externals_dialog(void)
                   (dialog_focus == EF_fat) && (i == dialog_usb_fat),
                   fat_label[i]);
     row++;
+    probe_part(ef_label[EF_sfn]);
+    put_marked(row++, x + 3, w - 6, COLOR_PAIR(CP_dialog),
+               COLOR_PAIR(CP_dlg_hot), ef_label[EF_sfn]);
+    for (i = 0; i < USB_SFN_nr; i++)
+        radio_row(row++, x + 3, w - 6, i == dialog_usb_sfn,
+                  (dialog_focus == EF_sfn) && (i == dialog_usb_sfn),
+                  sfn_label[i]);
+    row++;
+    probe_part(ef_label[EF_lfn]);
+    put_marked(row++, x + 3, w - 6, COLOR_PAIR(CP_dialog),
+               COLOR_PAIR(CP_dlg_hot), ef_label[EF_lfn]);
+    check_row(row++, x + 3, w - 6, dialog_usb_lfn, dialog_focus == EF_lfn,
+              "Beside the short ones; off, as MS-DOS leaves a drive");
+    row++;
+    probe_part(ef_label[EF_by]);
+    put_marked(row++, x + 3, w - 6, COLOR_PAIR(CP_dialog),
+               COLOR_PAIR(CP_dlg_hot), ef_label[EF_by]);
+    for (i = 0; i < USB_BY_nr; i++)
+        radio_row(row++, x + 3, w - 6, i == dialog_usb_by,
+                  (dialog_focus == EF_by) && (i == dialog_usb_by),
+                  by_label[i]);
+    row++;
     probe_part(ef_label[EF_osd]);
     put_marked(row++, x + 3, w - 6, COLOR_PAIR(CP_dialog),
                COLOR_PAIR(CP_dlg_hot), ef_label[EF_osd]);
@@ -2537,7 +2578,7 @@ static void draw_externals_dialog(void)
     row++;
     probe_part("notes");
     put(row++, x + 3, w - 4, COLOR_PAIR(CP_dialog), "%s",
-        "Changing the file system inserts such a drive again.");
+        "Changing the drive's settings inserts such a drive again.");
     put(row++, x + 3, w - 4, COLOR_PAIR(CP_dialog), "%s",
         "Fitting or removing FF OSD restarts the device.");
     /* OK is the default while the focus is on no button. Both are at the
@@ -2892,11 +2933,19 @@ static int externals_dialog_key(int key)
     case ' ':
         if (dialog_focus == EF_osd)
             dialog_osd = !dialog_osd;
+        else if (dialog_focus == EF_lfn)
+            dialog_usb_lfn = !dialog_usb_lfn;
         break;
     case KEY_UP: case KEY_DOWN:
         if ((dialog_focus == EF_fat) && (dialog_usb_fat + d >= 0)
             && (dialog_usb_fat + d < 2))
             dialog_usb_fat += d;
+        else if ((dialog_focus == EF_sfn) && (dialog_usb_sfn + d >= 0)
+                 && (dialog_usb_sfn + d < USB_SFN_nr))
+            dialog_usb_sfn += d;
+        else if ((dialog_focus == EF_by) && (dialog_usb_by + d >= 0)
+                 && (dialog_usb_by + d < USB_BY_nr))
+            dialog_usb_by += d;
         break;
     case 27:
         dialog = DLG_none;
@@ -5329,6 +5378,9 @@ static void open_externals_dialog(void)
     dialog = DLG_externals;
     dialog_button = 0;
     dialog_usb_fat = config.usb_fat16;
+    dialog_usb_sfn = config.usb_sfn;
+    dialog_usb_lfn = config.usb_lfn;
+    dialog_usb_by = config.usb_by;
     dialog_osd = config.osd;
     dialog_focus = EF_fat;
     ef_note[0] = '\0';
@@ -5407,7 +5459,8 @@ static void handle_key(int key)
     case DK_emul_no:
         leave(KEY_ACT_reset);
     case DK_externals:
-        ui_usb_set_fat16(dialog_usb_fat == 1);
+        ui_usb_set_drive(dialog_usb_fat == 1, dialog_usb_sfn,
+                         dialog_usb_lfn, dialog_usb_by);
         /* The firmware finds FF OSD as it starts: a change restarts the
          * device. */
         if (dialog_osd != config.osd) {
