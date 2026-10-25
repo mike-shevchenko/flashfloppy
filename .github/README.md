@@ -39,10 +39,11 @@ Some of these are not in a release yet: they come with the next one.
 
 - **The multi firmware**, described above, with its Apple2 images and both wirings of the phases. Its pull request follows once upstream has taken the smaller ones it builds on.
 - **The open pull requests**, and others once opened:
-  - [#1116](https://github.com/keirf/flashfloppy/pull/1116): the display's new options: double-width rows, a row of the name with the track, short tracks, Apple2 phases, three-digit tracks on 16 columns, folders as `/NAME`, scrolling by pixel, `display-order` by row letters, and a font test.
+  - [#1116](https://github.com/keirf/flashfloppy/pull/1116): the display's new options: double-width rows, a row of the name with the track, short tracks, Apple2 phases, three-digit tracks on 16 columns, folders as `/NAME`, scrolling by pixel, `display-order` by row letters, a font test, and an error screen of its own.
   - [#1117](https://github.com/keirf/flashfloppy/pull/1117): ffemu's crash report, a tick-free virtual clock, the firmware's writes to the USB drive kept as files, and a drive saved as an image file or unpacked to a folder.
   - [#1118](https://github.com/keirf/flashfloppy/pull/1118): my e-mail address in the headers of the files I wrote.
   - [#1119](https://github.com/keirf/flashfloppy/pull/1119): MFM cells and CRCs computed in place of their tables, and compiler flags for the STM32F105, freeing about 1.5 KB of its flash.
+  - [#1120](https://github.com/keirf/flashfloppy/pull/1120): what each error code means, shown beside it, as `E31 Bad image`.
 
 ---------------------------------------------------------------------------------------------------
 ## Installing
