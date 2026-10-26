@@ -68,6 +68,15 @@ $(level) := y
 
 FLAGS += $(MCU_FLAG) $(TARGET_FLAG) $(LEVEL_FLAG)
 
+# The STM32F105's logfile and debug images have no room for the display
+# extras that ffemu shows as well: lean_ui=y leaves them out (LEAN_UI).
+ifeq ($(mcu),stm32f105)
+lean_ui ?= $(debug)$(logfile)
+endif
+ifeq ($(lean_ui),y)
+FLAGS += -DLEAN_UI=1
+endif
+
 # fw307=y|n overrides the default support of the Apple2 phases' wiring of
 # Gotek firmware 307 (APPLE2_FW307 in src/gotek/floppy.c).
 ifneq ($(fw307),)
