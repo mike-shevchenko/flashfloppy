@@ -52,6 +52,12 @@ SUBDIRS += usb
 
 endif
 
+# An image without the display extras (lean_ui=y) shows error codes alone;
+# the bootloader keeps their meanings.
+ifeq ($(lean_ui)$(filter bootloader,$(target)),y)
+OBJS := $(filter-out fs_hint.o,$(OBJS))
+endif
+
 .PHONY: $(SRCDIR)/build_info.c
 build_info.o: CFLAGS += -DFW_VER="\"$(FW_VER)\""
 

@@ -221,6 +221,10 @@ unsigned int lcd_shown_rows(void)
 void lcd_write_shifted(int col, int row, int nr, unsigned int px,
                        const char *str)
 {
+#ifdef LEAN_UI
+    /* No scrolling by pixel. */
+    lcd_write(col, row, -1, str);
+#else
     struct oled_shift *s = &oled_shift[!!(row & LCD_WIDE)][row & ~LCD_WIDE];
     uint32_t oldpri = IRQ_save(I2C_IRQ_PRI);
 
@@ -230,6 +234,7 @@ void lcd_write_shifted(int col, int row, int nr, unsigned int px,
     s->next = px ? str[nr] : ' ';
     lcd_write(col, row, -1, str);
     IRQ_restore(oldpri);
+#endif
 }
 
 unsigned int lcd_column_pixels(void)
@@ -294,8 +299,12 @@ static void oled_glyph(uint8_t *q, char c, unsigned int from,
  * normal display mode. */
 static void oled_convert_text_row(const char *pc, const struct oled_shift *s)
 {
+#ifdef LEAN_UI
+    unsigned int i, w = lcd_column_pixels();
+#else
     unsigned int i, from, w = lcd_column_pixels();
     unsigned int px = ((display_mode == DM_normal) || error_mode) ? s->px : 0;
+#endif
     uint8_t *q = buffer;
 
     if (w == 6) {
@@ -303,6 +312,10 @@ static void oled_convert_text_row(const char *pc, const struct oled_shift *s)
         q++;
     }
 
+#ifdef LEAN_UI
+    for (i = 0; i < lcd_columns; i++, q += w)
+        oled_glyph(q, pc[i], 0, w);
+#else
     for (i = 0; i <= lcd_columns; i++) {
         if (i == s->col + s->nr) {
             oled_glyph(q, s->next, 0, px);
@@ -314,6 +327,7 @@ static void oled_convert_text_row(const char *pc, const struct oled_shift *s)
         oled_glyph(q, pc[i], from, w);
         q += w - from;
     }
+#endif
 
     /* Fill remainder of buffer[] with zeroes. */
     memset(q, 0, buffer+128-q);
