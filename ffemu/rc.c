@@ -70,10 +70,12 @@ static const struct setting {
         "hd44780-40x2, 74hc164-2digit or tm1651-3digit. Key 0." },
     [SET_lcd_rom] = {
         "lcd-rom",
-        "Character ROM of an LCD: cyr (Latin and upper- and lower-case "
-        "Cyrillic, MELT's and other Cyrillic modules; ffemu/lcd_font_cyr.h) "
-        "or a00 (Latin and Japanese, most other modules; "
-        "ffemu/lcd_font_a00.h). Key 0." },
+        "Character ROM of an LCD: a00 (Latin and Japanese, most modules; "
+        "ffemu/lcd_font_a00.h), a02 (Latin and European; "
+        "ffemu/lcd_font_a02.h), cyr-melt (Latin and Cyrillic, MELT's "
+        "modules; ffemu/lcd_font_cyr.h) or cyr-sitronix (Latin and Cyrillic, "
+        "Sitronix's 0T, Winstar's CT and generic modules; "
+        "ffemu/lcd_font_cyr_sitronix.h). Key 0." },
     [SET_oled_8x16] = {
         "oled-8x16",
         "The OLED's 8x16 font: font (the firmware's own) or synth (made from "
@@ -321,6 +323,11 @@ static bool parse_line(char *line)
         }
         return false;
     case SET_lcd_rom:
+        /* The name of MELT's ROM before Sitronix's came. */
+        if (!strcmp(value, "cyr")) {
+            config.lcd_rom = LCD_ROM_cyr_melt;
+            return true;
+        }
         for (i = 0; i < LCD_ROM_nr; i++) {
             if (!strcmp(value, lcd_rom_name[i])) {
                 config.lcd_rom = i;

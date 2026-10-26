@@ -143,7 +143,8 @@ void oled_i2c_stop(void);
 /* The character ROMs that ffemu has for the LCD, named and ordered as the
  * firmware's lcd-charset values, by their names in the settings file and on
  * the screen, with a line of help for each. */
-enum { LCD_ROM_a00, LCD_ROM_a02, LCD_ROM_cyr, LCD_ROM_nr };
+enum { LCD_ROM_a00, LCD_ROM_a02, LCD_ROM_cyr_melt, LCD_ROM_cyr_sitronix,
+       LCD_ROM_nr };
 extern const char * const lcd_rom_name[LCD_ROM_nr];
 extern const char * const lcd_rom_label[LCD_ROM_nr];
 extern const char * const lcd_rom_help[LCD_ROM_nr];
