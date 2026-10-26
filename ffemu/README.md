@@ -181,11 +181,13 @@ the same dialog, and kept as `lcd-rom`, by the values of the firmware's
 `lcd-charset`: `lcd-rom` is the ROM that the emulated module has, `lcd-charset`
 the one that the firmware is told of. They are `a00`, the default, Latin and
 Japanese, which most modules have; `a02`, Latin, its accented letters and some
-Greek, as Hitachi's datasheet draws it; or `cyr`, Latin and upper- and
-lower-case Cyrillic, page 0 of MELT's modules, whose codes the other Cyrillic
-modules share. Each is a header, `lcd_font_a00.h`, `lcd_font_a02.h` or
-`lcd_font_cyr.h`, holding the glyph of every code it defines, each labeled, and
-the Unicode character it stands for. The braille and half block renderings draw
+Greek, as Hitachi's datasheet draws it; `cyr-melt`, Latin and upper- and
+lower-case Cyrillic, page 0 of MELT's modules; or `cyr-sitronix`, the same codes
+in Sitronix's ROM 0T, which Winstar sells as CT and the generic Cyrillic modules
+have, as its datasheet draws it. The firmware's `lcd-charset = cyr` serves both.
+Each is a header, `lcd_font_a00.h`, `lcd_font_a02.h`, `lcd_font_cyr.h` or
+`lcd_font_cyr_sitronix.h`, holding the glyph of every code it defines, each
+labeled, and the Unicode character it stands for. The braille and half block renderings draw
 the glyphs, the half blocks on a terminal of 16 colors or more with the unlit
 dots of each character faint, in the panel's color of the other brightness, as
 a real panel shows them; the ASCII rendering prints the characters, as `dump`
@@ -560,7 +562,8 @@ with `FFEMU_CLOCK=host` set on the host's.
 - `ssd1306.c`: the OLED's controller, an SSD1306 or an SH1106, as an I2C slave.
 - `hd44780.c`: the LCD, an HD44780 controller behind a PCF8574 port expander as
   an I2C slave, and its characters as pixels from the font of the character ROM
-  chosen, `lcd_font_cyr.h` or `lcd_font_a00.h`.
+  chosen, `lcd_font_a00.h`, `lcd_font_a02.h`, `lcd_font_cyr.h` or
+  `lcd_font_cyr_sitronix.h`.
 - `led_7seg.c`: the 7-segment LED display, a TM1651 or a pair of 74HC164 shift
   registers on two GPIO lines, and its digits as pixels.
 - `osd.c`: FF OSD as an I2C slave, and its text as pixels in its font,

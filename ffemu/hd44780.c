@@ -7,8 +7,9 @@
  * the 4-bit protocol that the firmware clocks through the expander, keeps
  * the display RAM and the user-defined characters of CGRAM for the user
  * interface, and draws the characters from the font of the character ROM
- * chosen, lcd_font_a00.h, lcd_font_a02.h or lcd_font_cyr.h, which also give
- * the Unicode character of each code.
+ * chosen, lcd_font_a00.h, lcd_font_a02.h, lcd_font_cyr.h or
+ * lcd_font_cyr_sitronix.h, which also give the Unicode character of each
+ * code.
  *
  * This is free and unencumbered software released into the public domain.
  * See the file COPYING for more details, or visit <http://unlicense.org>.
@@ -21,6 +22,7 @@
 #include "lcd_font_a00.h"
 #include "lcd_font_a02.h"
 #include "lcd_font_cyr.h"
+#include "lcd_font_cyr_sitronix.h"
 
 /* A PCF8574 with its address pins left high, as backpacks come; the
  * firmware would find a PCF8574A, at 0x3f, as well. */
@@ -55,19 +57,24 @@
 const char * const lcd_rom_name[LCD_ROM_nr] = {
     [LCD_ROM_a00] = "a00",
     [LCD_ROM_a02] = "a02",
-    [LCD_ROM_cyr] = "cyr"
+    [LCD_ROM_cyr_melt] = "cyr-melt",
+    [LCD_ROM_cyr_sitronix] = "cyr-sitronix"
 };
 
 const char * const lcd_rom_label[LCD_ROM_nr] = {
     [LCD_ROM_a00] = "a00: Latin and Japanese",
     [LCD_ROM_a02] = "a02: Latin and European",
-    [LCD_ROM_cyr] = "cyr: Latin and Cyrillic"
+    [LCD_ROM_cyr_melt] = "cyr-melt: Latin and Cyrillic, MELT's",
+    [LCD_ROM_cyr_sitronix] = "cyr-sitronix: Latin and Cyrillic, Sitronix's"
 };
 
 const char * const lcd_rom_help[LCD_ROM_nr] = {
     [LCD_ROM_a00] = "Latin and Japanese katakana: ffemu/lcd_font_a00.h",
     [LCD_ROM_a02] = "Accented Latin and some Greek: ffemu/lcd_font_a02.h",
-    [LCD_ROM_cyr] = "Upper- and lower-case Cyrillic: ffemu/lcd_font_cyr.h"
+    [LCD_ROM_cyr_melt] = "Upper- and lower-case Cyrillic, MELT's modules: "
+        "ffemu/lcd_font_cyr.h",
+    [LCD_ROM_cyr_sitronix] = "Cyrillic, Sitronix's 0T, Winstar's CT, generic "
+        "modules: ffemu/lcd_font_cyr_sitronix.h"
 };
 
 static const struct {
@@ -82,9 +89,15 @@ static const struct {
     [LCD_ROM_a02] = { lcd_font_a02, lcd_font_a02_unicode, LCD_FONT_A02_FIRST,
                       ARRAY_SIZE(lcd_font_a02_unicode),
                       ARRAY_SIZE(lcd_font_a02) },
-    [LCD_ROM_cyr] = { lcd_font_cyr, lcd_font_cyr_unicode, LCD_FONT_CYR_FIRST,
-                      ARRAY_SIZE(lcd_font_cyr_unicode),
-                      ARRAY_SIZE(lcd_font_cyr) }
+    [LCD_ROM_cyr_melt] = { lcd_font_cyr, lcd_font_cyr_unicode,
+                           LCD_FONT_CYR_FIRST,
+                           ARRAY_SIZE(lcd_font_cyr_unicode),
+                           ARRAY_SIZE(lcd_font_cyr) },
+    [LCD_ROM_cyr_sitronix] = { lcd_font_cyr_sitronix,
+                               lcd_font_cyr_sitronix_unicode,
+                               LCD_FONT_CYR_SITRONIX_FIRST,
+                               ARRAY_SIZE(lcd_font_cyr_sitronix_unicode),
+                               ARRAY_SIZE(lcd_font_cyr_sitronix) }
 };
 
 /* The character ROM, set by the user interface. */

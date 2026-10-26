@@ -311,17 +311,19 @@ class RomCharset(fr.Case, unittest.TestCase):
     def test_cyr(self):
         """The ROM's Russian letters, Latin ones where they look alike, Latin
         b for the capital soft sign; its e acute and one half, the base letter
-        of a umlaut, the ROM's full block for the not sign."""
-        rows, r = self.rows("cyr", "cyr")
-        self.assertEqual(
-            rows[0],
-            "\u0401\u043b\u043aa \u042a\u044a ba \u00e9\u00bd\u2588",
-            r.report())
-        self.assertEqual(rows[3], "Elka _\u2592 Xa e??", r.report())
+        of a umlaut, the ROM's full block for the not sign: on MELT's ROM and
+        on Sitronix's, whose codes are the same."""
+        for rom in ("cyr-melt", "cyr-sitronix"):
+            with self.subTest(rom=rom):
+                rows, r = self.rows(rom, "cyr")
+                self.assertEqual(
+                    rows[0], "\u0401\u043b\u043aa \u042a\u044a ba "
+                    "\u00e9\u00bd\u2588", r.report())
+                self.assertEqual(rows[3], "Elka _\u2592 Xa e??", r.report())
 
     def test_ff_cfg(self):
         """lcd-charset read from FF.CFG, which puts it in flash."""
-        rows, r = self.rows("cyr", ff_cfg="lcd-charset = cyr\n")
+        rows, r = self.rows("cyr-melt", ff_cfg="lcd-charset = cyr\n")
         self.assertEqual(r.flash().get("lcd-charset"), "cyr", r.report())
         self.assertEqual(
             rows[0],
@@ -329,14 +331,17 @@ class RomCharset(fr.Case, unittest.TestCase):
             r.report())
 
     def test_ascii(self):
-        """An ASCII name as it is, whatever the ROM."""
+        """An ASCII name as it is, whatever the ROM; lcd-rom = cyr, the name of
+        MELT's ROM before Sitronix's came, read as cyr-melt."""
         r = fr.run(
-            "ffemu", ["wait 10000 log Name:", "sleep 1000", "dump"],
+            "ffemu", ["wait 10000 log Name:", "sleep 1000", "dump", "status"],
             settings=["display = hd44780-16x2", "lcd-rom = cyr"],
             flash=["lcd-charset = cyr"],
             files={"Game-1 (v2).img": bytes(737280)})
         self.assertWaits(r, 1)
         self.assertIn("|Game-1 (v2)     |", r.lines, r.report())
+        self.assertIn("display: HD44780 16x2, ROM cyr-melt", r.lines,
+                      r.report())
 
 
 if __name__ == "__main__":
