@@ -162,7 +162,10 @@ int emu_fdd_detected(void);
  * mode, the cylinder of the head, the side, whether it is selected, and the
  * image mounted, or NULL. */
 void emu_fdd_status(int *apple2, unsigned int *cyl, unsigned int *side,
-                    int *sel, const char **image);
+                    int *sel, const char **name);
+/* The image mounted, for the IMG.CFG window: its name without its
+ * extension, the extension, and its size in bytes; FALSE if none is. */
+int emu_fdd_image(const char **name, const char **type, unsigned int *size);
 unsigned int emu_arena_used(void);
 unsigned int emu_arena_size(void);
 

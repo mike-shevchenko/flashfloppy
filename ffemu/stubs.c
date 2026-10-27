@@ -1090,14 +1090,19 @@ int emu_fdd_detected(void)
 }
 #endif
 
-/* The image mounted, for the Status window; "" if none. */
-static char image_name[64];
+/* The image mounted, for the Status window; "" if none. Its name alone,
+ * its extension and its size, for the IMG.CFG window. */
+static char image_name[64], image_base[64], image_ext[8];
+static unsigned int image_size;
 
 void floppy_insert(unsigned int unit, struct slot *slot)
 {
     fw_floppy_insert(unit, slot);
     snprintf(image_name, sizeof(image_name), "%s.%s", slot->name,
              slot->type);
+    snprintf(image_base, sizeof(image_base), "%s", slot->name);
+    snprintf(image_ext, sizeof(image_ext), "%s", slot->type);
+    image_size = slot->size;
 }
 
 void floppy_cancel(void)
@@ -1127,6 +1132,16 @@ void emu_fdd_status(int *apple2, unsigned int *cyl, unsigned int *side,
     *side = ti.side;
     *sel = ti.sel;
     *name = image_name[0] ? image_name : NULL;
+}
+
+int emu_fdd_image(const char **name, const char **type, unsigned int *size)
+{
+    if (image_name[0] == '\0')
+        return FALSE;
+    *name = image_base;
+    *type = image_ext;
+    *size = image_size;
+    return TRUE;
 }
 
 const char *emu_fw_version(void)
