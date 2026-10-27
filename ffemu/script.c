@@ -267,14 +267,14 @@ static void print_fdd(void)
 
     if (emu_fdd_type == EMU_FDD_TYPE_apple2)
         printf("fdd: apple2, %s %s, phases %s, kept %s\n",
-               (in & EMU_FDD_SEL) ? "D_E" : "d_e",
+               (in & EMU_FDD_SEL) ? "DE" : "de",
                (in & EMU_FDD_WRITE) ? "WRQ" : "wrq",
                ui_fdd_phase_text(in, ph),
                ui_fdd_phase_text(ui_fdd_phases(), kept));
     else
         printf("fdd: step-dir, %s %s %s %s %s\n",
-               (in & EMU_FDD_SEL) ? "D_S" : "d_s",
-               (in & EMU_FDD_MOTOR) ? "M_O" : "m_o",
+               (in & EMU_FDD_SEL) ? "DS" : "ds",
+               (in & EMU_FDD_MOTOR) ? "MO" : "mo",
                (in & EMU_FDD_WRITE) ? "WRG" : "wrg",
                (in & EMU_FDD_DIR) ? "DIR" : "dir",
                (in & EMU_FDD_SIDE) ? "SID" : "sid");
