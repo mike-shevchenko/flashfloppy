@@ -2333,8 +2333,39 @@ static void lfn_add(struct lfn *l, const uint8_t *e)
     }
 }
 
+/* The character that the short name's bytes from @s[*@i] read as in the
+ * code page of config.usb_sfn, those of a UTF-8 sequence together, which
+ * leaves *@i at its last byte; '_' for bytes that read as none. */
+static unsigned int sfn_read(const uint8_t *s, unsigned int *i)
+{
+    unsigned int c = s[*i], more;
+
+    if (c < 0x80)
+        return c;
+    switch (config.usb_sfn) {
+    case USB_SFN_437:
+        return sfn_437_uni[c - 0x80];
+    case USB_SFN_mik:
+        return sfn_mik_uni[c - 0x80];
+    case USB_SFN_utf8:
+        /* Windows writes sequences of two and three bytes alone. */
+        more = ((c & 0xe0) == 0xc0) ? 1 : ((c & 0xf0) == 0xe0) ? 2 : 0;
+        if (more == 0)
+            return '_';
+        c &= 0x3f >> more;
+        for (; more != 0; more--) {
+            if ((s[*i + 1] & 0xc0) != 0x80)
+                return '_';
+            c = (c << 6) | (s[++*i] & 0x3f);
+        }
+        return c;
+    }
+    return sfn_866_uni[c - 0x80];
+}
+
 /* The name of short entry @e as the host gets it, in UTF-8: its long name
- * if @l holds one for it, else its short name's bytes, taken as Latin-1. */
+ * if @l holds one for it, else its short name read in the code page of
+ * config.usb_sfn. */
 static void host_name(const uint8_t *e, const struct lfn *l, char *buf,
                       size_t size)
 {
@@ -2348,7 +2379,7 @@ static void host_name(const uint8_t *e, const struct lfn *l, char *buf,
     }
     entry_name(e, sfn);
     for (i = n = 0; sfn[i] != '\0'; i++)
-        u[n++] = (uint8_t)sfn[i];
+        u[n++] = sfn_read((const uint8_t *)sfn, &i);
     utf16_to_utf8(u, n, buf, size);
 }
 
