@@ -2745,10 +2745,14 @@ static uint8_t menu_wait_button(bool_t twobutton_eject, const char *led_msg)
 }
 
 /* Error @fres as the display shows it into @msg of @size: its code, `E` for
- * FlashFloppy's own and `F` for FatFS's. */
+ * FlashFloppy's own and `F` for FatFS's, and on an LCD or OLED what it
+ * means. */
 static void error_text(char *msg, size_t size, FRESULT fres)
 {
-    snprintf(msg, size, "%c%02u", (fres >= FR_DISK_FULL) ? 'E' : 'F', fres);
+    snprintf(msg, size, "%c%02u %s", (fres >= FR_DISK_FULL) ? 'E' : 'F',
+             fres, fresult_hint(fres));
+    if (display_type == DT_LED_7SEG)
+        msg[3] = '\0';
 }
 
 /* Shows error message @msg, and the image's name @name after it unless
@@ -3757,7 +3761,7 @@ static void handle_errors(FRESULT fres)
         printk("USB Power Fault detected!\n");
         snprintf(msg, sizeof(msg), "USB Power Fault");
     } else if (volume_connected() && (fres != FR_OK)) {
-        printk("**Error %u\n", fres);
+        printk("**Error %u %s\n", fres, fresult_hint(fres));
         error_text(msg, sizeof(msg), fres);
     } else {
         /* No error. Do nothing. */

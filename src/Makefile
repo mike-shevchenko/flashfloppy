@@ -32,6 +32,7 @@ else ifeq ($(target),bootloader)
 
 OBJS += fw_update.o
 OBJS += charset.o
+OBJS += fs_hint.o
 SUBDIRS += display fatfs gotek usb
 
 else
@@ -39,6 +40,7 @@ else
 OBJS += main.o
 OBJS += cache.o
 OBJS += charset.o
+OBJS += fs_hint.o
 
 OBJS-$(shugart) += floppy.o
 OBJS-$(apple2) += floppy.o
