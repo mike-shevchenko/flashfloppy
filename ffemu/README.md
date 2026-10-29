@@ -103,10 +103,11 @@ firmware sees it, its writes included: "Save drive to image file" writes a
 drive made from a directory or read from a disk as an image file,
 `saved/drive-YYYYMMDD-HHMMSS.img` beside the console log; "Unpack drive image
 to folder" writes the files and folders of a drive read from an image file
-to the folder `saved/drive-YYYYMMDD-HHMMSS/`, long names in UTF-8, as the
-folder `drive/` has them; a second one within a second gets a count after
-the time, so that nothing is overwritten. The dialog's last row names what
-was written; the button is dimmed while the drive is out.
+to the folder `saved/drive-YYYYMMDD-HHMMSS/`, long names in UTF-8 and a short
+name without one read in the code page of `usb-drive-sfn`, as the folder
+`drive/` has them; a second one within a second gets a count after the time,
+so that nothing is overwritten. The dialog's last row names what was written;
+the button is dimmed while the drive is out.
 Status names the `FF.CFG` that the firmware reads: the one in folder `FF` if
 the drive has that folder, even when that one is missing, else the one in the
 root; names match in any letter case.

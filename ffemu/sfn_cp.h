@@ -3,7 +3,7 @@
  *
  * How each character is written in the short names of a drive made from a
  * directory, by the code page and the system that would have copied the
- * files: the tables of sfn_cp.c.
+ * files, and what a short name's bytes read as: the tables of sfn_cp.c.
  *
  * Written & released by Mike Shevchenko <mike.shevchenko@gmail.com>
  *
@@ -39,6 +39,10 @@ extern const struct sfn_table sfn_437_linux, sfn_866_linux, sfn_mik;
  * capital, by code point. */
 extern const uint16_t sfn_utf8_upper[][2];
 extern const unsigned int sfn_utf8_upper_nr;
+
+/* What each byte from 0x80 of a short name reads as in code pages 437, 866
+ * and MIK, by code point. */
+extern const uint16_t sfn_437_uni[128], sfn_866_uni[128], sfn_mik_uni[128];
 
 /*
  * Local variables:
