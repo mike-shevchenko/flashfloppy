@@ -2,8 +2,8 @@
  * oled_spinner.c
  *
  * The stepper phase spinner of the Apple2 mode on the OLED, included by
- * lcd_common.c, whose text row converters and the drivers' draw it for a
- * character OLED_SPINNER plus the phases on.
+ * lcd_common.c, which draws it over a rendered text row for a character
+ * OLED_SPINNER plus the phases on.
  *
  * Written & released by Mike Shevchenko <mike.shevchenko@gmail.com>
  *
@@ -35,14 +35,25 @@ static const uint8_t oled_spinner_14[] = {
 };
 #endif
 
-/* Draws the spinner for @phases into the two cells of @w columns at @q,
- * from the @n rows of @glyph, a pixel of margin above: a pixel belongs to
- * the side whose triangle, cut by the diagonals, holds it. */
+/* Draws the spinner for @phases into the two cells of @w columns at @q, the
+ * square of the font's cells: a pixel of margin above it in the 16 pixel
+ * rows of a row of normal height, or, for @half 2 or 1, as large in the
+ * middle of a double-height row, of which buffer[] holds the top or bottom
+ * half. A pixel belongs to the side whose triangle, cut by the diagonals,
+ * holds it. */
 static void oled_spinner(uint8_t *q, unsigned int w, unsigned int phases,
-                         const uint8_t *glyph, unsigned int n)
+                         unsigned int half)
 {
-    unsigned int i, x, y, side;
-    uint16_t out;
+    const uint8_t *glyph = oled_spinner_11;
+    unsigned int i, x, y, side, n = 11;
+    uint32_t out;
+
+#ifdef font_extra
+    if (w == 8) {
+        glyph = oled_spinner_14;
+        n = 14;
+    }
+#endif
 
     /* Over both cells: a column outside the glyph, whose x is out of range
      * as an unsigned, comes out blank. */
@@ -57,6 +68,10 @@ static void oled_spinner(uint8_t *q, unsigned int w, unsigned int phases,
                 out |= 1u<<y;
         }
         out <<= 1;
+        if (half == 2)
+            out <<= 8;
+        else if (half == 1)
+            out >>= 8;
         q[i] = out;
         q[128+i] = out >> 8;
     }

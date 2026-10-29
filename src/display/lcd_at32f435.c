@@ -123,7 +123,7 @@ static void dma_start(unsigned int sz)
 /* Snapshot text buffer into the command buffer. */
 static unsigned int osd_prep_buffer(void)
 {
-    uint16_t order = menu_mode ? 0x7903 : 0x7183;
+    uint16_t order = glyphs_mode ? 0x7710 : menu_mode ? 0x7903 : 0x7183;
     uint8_t *q = buffer;
     unsigned int row, rows, heights;
     int i;
@@ -136,6 +136,8 @@ static unsigned int osd_prep_buffer(void)
     if ((ff_cfg.osd_display_order != DORD_default)
         && (display_mode == DM_normal))
         order = ff_cfg.osd_display_order;
+    else if (error_mode)
+        order = error_order();
 
     heights = rows = 0;
     /* FF OSD takes three rows at most: its row count is two bits. */
@@ -167,9 +169,9 @@ static unsigned int osd_prep_buffer(void)
         osd_map_row(q);
 #if TARGET_SUPPORTS_APPLE2
         /* The OLED's phase spinner goes as a blank: FF OSD has no glyph
-         * for it. */
+         * for it. The font test sends its code as it is. */
         for (i = 0; i < lcd_columns; i++, q++)
-            if (((uint8_t)*q & ~0xf) == OLED_SPINNER)
+            if (!glyphs_mode && (((uint8_t)*q & ~0xf) == OLED_SPINNER))
                 *q = ' ';
 #else
         q += lcd_columns;
@@ -204,9 +206,11 @@ static unsigned int lcd_prep_buffer(void)
         refresh_count++;
     }
 
-    order = (lcd_rows == 2) ? 0x7710 : 0x2103;
+    order = glyphs_mode ? 0x3210 : (lcd_rows == 2) ? 0x7710 : 0x2103;
     if ((ff_cfg.display_order != DORD_default) && (display_mode == DM_normal))
         order = ff_cfg.display_order;
+    else if (error_mode)
+        order = error_order();
 
     row = (order >> (i2c_row * DORD_shift)) & DORD_row;
     p = (_bl && row < ARRAY_SIZE(text)) ? text[row] : NULL;
@@ -531,27 +535,15 @@ fail:
 
 #ifdef font_extra
 extern const struct oled_font oled_font_8x16;
-static void oled_convert_text_row_8x16(char *pc)
+static void oled_glyph_8x16(uint8_t *q, unsigned int g, unsigned int from,
+                            unsigned int to)
 {
-    unsigned int i;
     uint8_t glyph[16];
-    uint8_t *q = buffer;
     const unsigned int w = 8;
 
-    for (i = 0; i < lcd_columns; i++) {
-        if (TARGET_SUPPORTS_APPLE2
-            && (((uint8_t)*pc & ~0xf) == OLED_SPINNER)) {
-            oled_spinner(q, w, *pc & 0xf, oled_spinner_14, 14);
-            pc += 2;
-            q += 2*w;
-            i++;
-            continue;
-        }
-        oled_font_glyph(&oled_font_8x16, oled_font_index(*pc++), glyph);
-        memcpy(q, glyph, w);
-        memcpy(q+128, glyph+w, w);
-        q += w;
-    }
+    oled_font_glyph(&oled_font_8x16, g, glyph);
+    memcpy(q, glyph+from, to-from);
+    memcpy(q+128, glyph+w+from, to-from);
 }
 #endif
 
@@ -604,7 +596,6 @@ static unsigned int oled_start_i2c(uint8_t *buf)
 /* Snapshot text buffer into the bitmap buffer. */
 static unsigned int oled_prep_buffer(void)
 {
-    int size;
     uint8_t *p = buffer;
 
     if (i2c_row == (oled_height / 8)) {
@@ -619,14 +610,9 @@ static unsigned int oled_prep_buffer(void)
     }
 
     /* Convert one row of text[] into buffer[] writes. */
-    size = oled_to_lcd_row(i2c_row/2);
-    if (size != 0) {
-        oled_double_height(&buffer[128], &buffer[(size == 1) ? 128 : 0],
-                           (i2c_row & 1) + 1);
-    } else {
-        if (!(i2c_row & 1))
-            memcpy(&buffer[128], &buffer[0], 128);
-    }
+    oled_to_lcd_row(i2c_row/2);
+    if (!(i2c_row & 1))
+        memcpy(&buffer[128], &buffer[0], 128);
 
     /* New I2C transaction. */
     p += oled_start_i2c(p);
