@@ -42,6 +42,7 @@ Some of these are not in a release yet: they come with the next one.
   - [#1116](https://github.com/keirf/flashfloppy/pull/1116): the display's new options: double-width rows, a row of the name with the track, short tracks, Apple2 phases, three-digit tracks on 16 columns, folders as `/NAME`, scrolling by pixel, `display-order` by row letters, a font test, and an error screen of its own.
   - [#1119](https://github.com/keirf/flashfloppy/pull/1119): MFM cells and CRCs computed in place of their tables, and compiler flags for the STM32F105, freeing about 1.5 KB of its flash.
   - [#1120](https://github.com/keirf/flashfloppy/pull/1120): what each error code means, shown beside it, as `E31 Bad image`.
+  - [#1122](https://github.com/keirf/flashfloppy/pull/1122): incremental builds that recompile again every object that a changed header affects, each object with a dependency file of its own.
 
 ---------------------------------------------------------------------------------------------------
 ## Installing
