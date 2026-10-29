@@ -34,8 +34,9 @@
 #define CONSOLE_SOFTIRQ SOFTIRQ_1
 DEFINE_IRQ(CONSOLE_SOFTIRQ, "SOFTIRQ_console");
 
-/* We stage serial output in a ring buffer. */
-static char ring[2048];
+/* We stage serial output in a ring buffer, in a section of its own, which
+ * keeps it from pushing other statics out of reach of their anchor. */
+static char ring[2048] __attribute__((section(".bss.console_ring")));
 #define MASK(x) ((x)&(sizeof(ring)-1))
 static unsigned int cons, prod;
 

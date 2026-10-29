@@ -17,6 +17,12 @@ FLAGS += -Wundef
 
 ## STM32F105
 ifeq ($(mcu),stm32f105)
+# Its images are nearly full: flags that make GCC emit less code than
+# -Os alone, each measured, at a little speed in loops.
+FLAGS += -fno-schedule-insns2 -fno-move-loop-invariants
+FLAGS += -fmerge-all-constants -fno-ipa-sra -fno-caller-saves
+FLAGS += -fno-if-conversion -fno-if-conversion2
+FLAGS += -fno-partial-inlining -fno-inline-small-functions
 
 FLAGS += -mcpu=cortex-m3
 
@@ -33,6 +39,17 @@ endif
 ifeq ($(target),bootloader)
 # Debug bootloader doesn't fit in 32kB
 override level=prod
+endif
+
+# The logfile and debug builds are the nearest to full: optimize them
+# across files at link time, inlining no small function that is not
+# called once or declared inline.
+ifneq ($(filter logfile debug,$(level)),)
+FLAGS += -flto -fno-inline-small-functions
+# A call not inlined hides its effects on memory from the caller, as it
+# does without LTO.
+FLAGS += -fno-ipa-reference -fno-ipa-pure-const
+# TODO: Add -fno-ipa-modref once the toolchain is GCC 11 or later.
 endif
 
 ## AT32F435
@@ -94,8 +111,13 @@ build.o: $(OBJS)
 	@echo CPP $@
 	$(CC) -P -E $(AFLAGS) $< -o $@
 
+# The asm of a naked function hides what it calls and touches from the
+# compiler, which must be told to assume nothing of it by noipa.
 %.elf: $(OBJS) %.ld $(SRCDIR)/Makefile
 	@echo LD $@
+	@if grep -rnE '[(,] *naked *[),]' --include='*.[ch]' $(ROOT)/src \
+	    $(ROOT)/inc | grep -v noipa; then \
+	    echo "Naked function without noipa" >&2; false; fi
 	$(CC) $(LDFLAGS) -T$(*F).ld $(OBJS) -o $@
 	chmod a-x $@
 
