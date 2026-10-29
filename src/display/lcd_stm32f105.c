@@ -195,6 +195,7 @@ static unsigned int osd_prep_buffer(void)
             memcpy(q, text[i], lcd_columns);
         else
             memset(q, ' ', lcd_columns);
+        osd_map_row(q);
 #if TARGET_SUPPORTS_APPLE2
         /* The OLED's phase spinner goes as a blank: FF OSD has no glyph
          * for it. */
@@ -250,7 +251,7 @@ static unsigned int lcd_prep_buffer(void)
 
     emit8(&q, CMD_SETDDRADDR | row_offs[i2c_row], 0);
     for (i = 0; i < lcd_columns; i++)
-        emit8(&q, p ? *p++ : ' ', _RS);
+        emit8(&q, p ? lcd_char(*p++) : ' ', _RS);
 
     i2c_row++;
 
@@ -573,6 +574,7 @@ bool_t lcd_init(void)
     emit8(&p, CMD_DISPLAYCTL, 0);
     emit8(&p, CMD_ENTRYMODE | 2, 0);
     emit8(&p, CMD_DISPLAYCTL | 4, 0); /* display on */
+    lcd_cgram_block(&p);
     i2c->cr2 |= I2C_CR2_DMAEN;
     dma_start(p - buffer);
     
@@ -602,11 +604,11 @@ fail:
 #ifndef OLED_FONT_8x16_SYNTH
 #define OLED_FONT_8x16_SYNTH 0
 #endif
-extern const uint8_t oled_font_8x16[];
+extern const struct oled_font oled_font_8x16;
 static void oled_convert_text_row_8x16(char *pc)
 {
     unsigned int i, j, c;
-    const uint8_t *p;
+    uint8_t glyph[16], *p = glyph;
     uint8_t *q = buffer;
     const unsigned int w = 8;
 
@@ -619,8 +621,7 @@ static void oled_convert_text_row_8x16(char *pc)
             i++;
             continue;
         }
-        if ((c = *pc++ - 0x20) > 0x5e)
-            c = '.' - 0x20;
+        c = oled_font_index(*pc++);
         /* Testing a macro at runtime allows the build system to supply a
          * runtime condition.
          */
@@ -629,13 +630,13 @@ static void oled_convert_text_row_8x16(char *pc)
              * right, 7 columns by 13 rows: centered in the cell and rounded
              * up and left, it is at the left, a row down, where the 6x13
              * font already has it in its 16 rows. */
-            p = &oled_font_6x13[c * 6 * 2];
+            oled_font_glyph(&oled_font_6x13, c, glyph);
             for (j = 0; j < w; j++) {
                 q[j] = ((j < 6) ? p[j] : 0) | ((j-1 < 6) ? p[j-1] : 0);
                 q[128+j] = ((j < 6) ? p[6+j] : 0) | ((j-1 < 6) ? p[5+j] : 0);
             }
         } else {
-            p = &oled_font_8x16[c * w * 2];
+            oled_font_glyph(&oled_font_8x16, c, glyph);
             memcpy(q, p, w);
             memcpy(q+128, p+w, w);
         }
