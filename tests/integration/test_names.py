@@ -1,7 +1,8 @@
 """Names of files and folders that are not ASCII, which the firmware holds in
 the character set of inc/charset.h: a folder entered and an image mounted by
 their long names in Cyrillic, and names drawn on the OLED in each font; the
-drive of mk_names_image.py, whose names come in every encoding; and the short
+drive of mk_names_image.py, whose names come in every encoding, as the
+firmware reads them and as ffemu's unpack names its files; and the short
 names of ffemu's drive made from a folder, in each code page."""
 
 import os
@@ -256,6 +257,34 @@ class NamesImage(fr.Case, unittest.TestCase):
                 self.assertEqual(name_cells(r, "6x13", len(shown)),
                                  [glyph("6x13", ord(c)) for c in shown],
                                  r.report())
+
+
+class UnpackNames(fr.Case, unittest.TestCase):
+    """mk_names_image.py's drive unpacked to a folder, with the usb-drive-sfn
+    of each folder of short names alone: its files and folders named in UTF-8
+    as that code page reads their short names, as the firmware shows them."""
+
+    PAGES = {"SFN-437": "437", "SFN-866": "866", "SFN-MIK": "mik",
+             "SFN-UTF8": "utf8"}
+
+    def test_names(self):
+        with tempfile.TemporaryDirectory(prefix="ffemu-test-") as tmp:
+            image = os.path.join(tmp, "names.img")
+            mk_names_image.build(image)
+            for folder, _, _, items in mk_names_image.FOLDERS:
+                if folder not in self.PAGES:
+                    continue
+                with self.subTest(folder=folder):
+                    out = os.path.join(tmp, folder)
+                    r = fr.run(
+                        "ffemu", ["sleep 1000", "unpack " + out],
+                        settings=["usb-drive-sfn = " + self.PAGES[folder]],
+                        drive_image=image)
+                    want = sorted(shown + ("" if is_dir else ".IMG")
+                                  for _, _, is_dir, shown in items)
+                    self.assertEqual(
+                        sorted(os.listdir(os.path.join(out, folder))), want,
+                        r.report())
 
 
 # A name of Russian letters, Yo, both hard signs and the capital soft sign
