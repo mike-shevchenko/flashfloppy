@@ -37,6 +37,8 @@ static unsigned int log_printed;
 /* When the current sleep ends, or zero. A reset by the firmware itself cuts
  * a sleep short: the rest of it is then slept after the power cycle. */
 static volatile uint64_t sleep_end;
+/* Whether commands come from stdin, the user interface not running. */
+static bool started;
 
 unsigned int script_sleep_left(void)
 {
@@ -265,14 +267,14 @@ static void print_fdd(void)
 
     if (emu_fdd_type == EMU_FDD_TYPE_apple2)
         printf("fdd: apple2, %s %s, phases %s, kept %s\n",
-               (in & EMU_FDD_SEL) ? "D_E" : "d_e",
+               (in & EMU_FDD_SEL) ? "DE" : "de",
                (in & EMU_FDD_WRITE) ? "WRQ" : "wrq",
                ui_fdd_phase_text(in, ph),
                ui_fdd_phase_text(ui_fdd_phases(), kept));
     else
         printf("fdd: step-dir, %s %s %s %s %s\n",
-               (in & EMU_FDD_SEL) ? "D_S" : "d_s",
-               (in & EMU_FDD_MOTOR) ? "M_O" : "m_o",
+               (in & EMU_FDD_SEL) ? "DS" : "ds",
+               (in & EMU_FDD_MOTOR) ? "MO" : "mo",
                (in & EMU_FDD_WRITE) ? "WRG" : "wrg",
                (in & EMU_FDD_DIR) ? "DIR" : "dir",
                (in & EMU_FDD_SIDE) ? "SID" : "sid");
@@ -308,6 +310,34 @@ static void dump_osd(void)
         }
         row[n] = '\0';
         printf("|%s|\n", row);
+    }
+}
+
+/* The section of IMG.CFG that the firmware applies to the image mounted,
+ * its lines between bars. */
+static void dump_imgcfg(void)
+{
+    struct imgcfg_view v;
+    const char *p;
+    size_t n;
+
+    imgcfg_get_view(&v);
+    if (v.state == IMGCFG_none) {
+        printf("imgcfg: none\n");
+        return;
+    }
+    if (v.state == IMGCFG_no_section) {
+        printf("imgcfg: no section applies\n");
+        return;
+    }
+    if (v.header[0] == '\0')
+        printf("imgcfg: default section, %u lines\n", v.nr_lines);
+    else
+        printf("imgcfg: section %s, %u lines\n", v.header, v.nr_lines);
+    for (p = v.text; *p != '\0'; p += n, p += (*p == '\n')) {
+        n = strcspn(p, "\n");
+        printf("|%.*s|\n", (int)(((n != 0) && (p[n-1] == '\r')) ? n - 1 : n),
+               p);
     }
 }
 
@@ -393,12 +423,41 @@ static bool read_line(char *line, size_t size)
     return n != 0;
 }
 
+/* What each option takes, a line each: its name, its kind, and its names
+ * and its flags after `+`, as the Flash mem dialog offers them. */
+static void print_options(void)
+{
+    static const char * const kind[] = {
+        [EMU_KIND_text] = "text", [EMU_KIND_number] = "number",
+        [EMU_KIND_string] = "string", [EMU_KIND_yes_no] = "yes-no",
+        [EMU_KIND_named] = "named"
+    };
+    struct emu_option_info o;
+    char value[64];
+    unsigned int i, j, flags;
+    uint8_t cfg[256];
+
+    emu_flash_cfg_defaults(cfg);
+    for (i = 0; i < emu_flash_nr_options(); i++) {
+        emu_flash_option_info(i, &o);
+        printf("option %s %s",
+               emu_flash_option(i, cfg, value, sizeof(value), &flags),
+               kind[o.kind]);
+        for (j = 0; j < o.nr_values; j++)
+            printf(" %s", o.values[j].name);
+        for (j = 0; j < o.nr_flags; j++)
+            printf(" +%s", o.flags[j].name);
+        printf("\n");
+    }
+}
+
 static void *script_thread(void *arg_sleep_ms)
 {
     char line[512], arg[64];
     unsigned int i, ms = (uintptr_t)arg_sleep_ms;
     int n;
 
+    crash_name_thread("script");
     if (ms != 0)
         run_for(ms);
 
@@ -461,10 +520,16 @@ static void *script_thread(void *arg_sleep_ms)
             dump_display();
         } else if (!strcmp(line, "osd")) {
             dump_osd();
+        } else if (!strcmp(line, "imgcfg")) {
+            dump_imgcfg();
         } else if (!strcmp(line, "log")) {
             print_log();
         } else if (!strcmp(line, "status")) {
             print_status();
+        } else if (!strcmp(line, "check-dialogs")) {
+            ui_check_dialogs();
+        } else if (!strcmp(line, "options")) {
+            print_options();
         } else if (!strcmp(line, "flash")) {
             static char section[8192];
             rc_flash_section(section, sizeof(section));
@@ -474,6 +539,15 @@ static void *script_thread(void *arg_sleep_ms)
             if (!usb_save(line + 5, err, sizeof(err)))
                 fprintf(stderr, "ffemu: cannot save the USB drive: %s\n",
                         err);
+        } else if (!strncmp(line, "unpack ", 7)) {
+            char err[600];
+            if (!usb_unpack(line + 7, err, sizeof(err)))
+                fprintf(stderr, "ffemu: cannot unpack the USB drive: %s\n",
+                        err);
+        } else if (!strcmp(line, "crash")) {
+            /* A fault, which tests the crash report. */
+            volatile int *volatile p = NULL;
+            *p = 0;
         } else if ((line[0] != '\0') && (line[0] != '#')) {
             fprintf(stderr, "ffemu: no such command: %s\n", line);
         }
@@ -490,9 +564,16 @@ void script_start(unsigned int sleep_ms)
 {
     pthread_t thread;
 
+    started = true;
     if (pthread_create(&thread, NULL, script_thread,
                        (void *)(uintptr_t)sleep_ms) != 0)
         cpu_quit(3, "ffemu: cannot create a thread");
+}
+
+void script_end(void)
+{
+    if (started)
+        (void)!write(STDOUT_FILENO, "quit\n", 5);
 }
 
 /*

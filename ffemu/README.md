@@ -95,6 +95,23 @@ no such file, and alone while the drive is out. Such writes never reach the
 host files, the image or the disk: they go to a temporary file and last until
 the drive is removed. They survive a power cycle, as on a real drive, provided
 that the files of the directory, or the image, have not changed in between.
+The files that they change are also kept as files, in the folder `drive/`
+beside the console log, at their paths on the drive, as `drive/IMAGE_A.CFG`
+or `drive/FF/FLASH.DMP`: half a second after the firmware's last write, and
+whenever the drive is removed, the device power-cycled or ffemu ended, a file
+that the firmware deletes, or writes back as the medium has it, leaving it.
+The folder goes on through a power cycle, as the writes do; when the writes
+are dropped, it is renamed `drive.bak/`, the previous one removed. A name that
+the host refuses gets a leading `_`, which the console says.
+The Externals dialog's button below its choices saves the drive as the
+firmware sees it, its writes included: "Save drive to image file" writes a
+drive made from a directory or read from a disk as an image file,
+`saved/drive-YYYYMMDD-HHMMSS.img` beside the console log; "Unpack drive image
+to folder" writes the files and folders of a drive read from an image file
+to the folder `saved/drive-YYYYMMDD-HHMMSS/`, long names in UTF-8, as the
+folder `drive/` has them; a second one within a second gets a count after
+the time, so that nothing is overwritten. The dialog's last row names what
+was written; the button is dimmed while the drive is out.
 Status names the `FF.CFG` that the firmware reads: the one in folder `FF` if
 the drive has that folder, even when that one is missing, else the one in the
 root; names match in any letter case.
@@ -193,8 +210,8 @@ text rows with each refresh, as many columns as the display has, in the order
 of `osd-display-order`; ffemu takes them as FF OSD's own firmware does, which
 shows three rows at most, and answers the firmware's reads as FF OSD 1.9 with
 no button pressed. The OSD pane below Controls shows the text in light green on
-black, its three rows and as many columns as the firmware sends, with Flash mem
-as tall as both: FF OSD draws a code outside 0x20 to 0x7F as a blank, and 0x7F
+black, its three rows and as many columns as the firmware sends: FF OSD draws a
+code outside 0x20 to 0x7F as a blank, and 0x7F
 as a checkerboard, which the pane shows as a medium shade, or as `?` in the
 ASCII rendering. `` ` ``, the same key on a Russian layout, switches the pane
 to braille: FF OSD's pixels, in its own 8x8 font, double-height rows included,
@@ -202,6 +219,19 @@ below Controls, Status and Flash mem, four cells a column: 86 for an OLED's 21
 columns, 162 for 40. In a window too narrow for them the pane stays text, and
 its frame says that the window is too small; in the ASCII rendering it stays
 text, as plain ASCII. The choice is kept as `osd-style = text | braille`.
+
+While a raw sector image is mounted, `.img`, `.ima`, `.out`, or `.dsk` when
+the DSK format does not take it, and the drive has `IMG.CFG` where the
+firmware reads it, the IMG.CFG pane shows the section of it that the firmware
+applies to that image, chosen as the firmware chooses it, or that no section
+applies: to the right of FF OSD's pane, or in its place when FF OSD is not
+fitted; Alt+PgUp and Alt+PgDn page it. The pane's title gives the section's
+header as parsed, with the size after `::` if it has one, the tag being the
+part of the image's name after its last dot (`GAME.AKAI.IMG` is tagged
+`akai`); among the sections that fit, by tag, by size or by being the empty
+default, the first with the best score wins, a tag worth more than a size,
+which is worth more than the default, and a mismatch on either ruling the
+section out.
 
 The app presents a TUI similar in look to Turbo Vision, mostly self-documented.
 The keys that act like Gotek controls or its state changers are shown in the
@@ -225,10 +255,12 @@ Braille, gives a nearly even grid: in mintty, `FontChoice=|Braille Patterns:1`
 with `Font1=DejaVu Sans` takes the Braille block from it, and in Windows
 Terminal a font list such as `"face": "Consolas, DejaVu Sans"` falls back to
 it. Beside the display, the `FF.CFG` that the firmware reads is
-shown; while the USB drive is ejected, it stays there, in light gray: for a
-drive made from a directory, as the file is on the host now, looked for and
-read again on every Del, so that an edit shows what the next insertion will
-give the firmware; for an image or a disk, as last read from it. The dash in
+shown, its comments in light gray and each setting with its name in bright
+yellow, its `=` in cyan and its value in bright cyan; while the USB drive is
+ejected, it stays there, all in light gray: for a drive made from a directory,
+as the file is on the host now, looked for and read again on every Del, so
+that an edit shows what the next insertion will give the firmware; for an
+image or a disk, as last read from it. The dash in
 the museum's name at the top right turns every half second, which shows that
 ffemu runs; ffemu ends when two of its turns in a row cannot be written, as
 happens when the window of the terminal is killed and no hangup signal comes.
@@ -263,11 +295,11 @@ the other side of the cable, `Step/Dir` or `Apple2`, and the signals that it
 sends to the drive, each lit in dark yellow while it is active as on the
 schematics, whatever its voltage, with the key that changes it below:
 
-- Step/Dir (Shugart, PC and the like): `[` toggles D_S (drive select), `]` M_O
+- Step/Dir (Shugart, PC and the like): `[` toggles DS (drive select), `]` MO
   (motor on), `;` WRG (write gate), `-` DIR (step direction: active, as at the
   start, steps inward to higher tracks), `+` sends a STP (step) pulse, which
   stays lit for a moment, and `\` toggles SID (side select).
-- Apple2: `[` toggles D_E (drive enable), `;` WRQ (write request), and `+` and
+- Apple2: `[` toggles DE (drive enable), `;` WRQ (write request), and `+` and
   `-` move the stepper phases PH0 to PH3 to their next or previous state in the
   cycle a computer goes through: phase 0 alone, phases 0 and 1, phase 1 alone,
   and so on. The firmware steps the head when one phase alone is on next to the
@@ -346,6 +378,23 @@ replacing the one before it. A reset that the firmware does by itself is no
 power cycle: the file and the pane go on after a green line
 `======= Firmware reset =======`.
 
+A fault, such as a write through a bad pointer, ends ffemu with a report on
+standard error and at the end of the console log: the signal, the thread
+(`firmware`, `bus`, `script`, `TUI` or `main`), the registers `rip`, `rsp` and
+`eflags`, and the stack, which `addr2line -f -e <program>` turns into functions
+and lines: each frame's address, ffemu's image being loaded where it was
+linked, or on Linux in a position-independent build the offset in parentheses
+after the program's name, the first frames being the report's own, and each
+frame after the first a return address, which names the line after its call.
+The report takes the place of the `.stackdump` file that Cygwin would write. On
+Windows, under heavy load, ffemu may end with the status 0x80000004 and no
+report: the MSYS2 runtime delivers a signal by setting a thread's single-step
+trap flag, and when the thread gets no time slice within 10 ms, leaves the flag
+set with its own handler gone, and the trap reaches no handler of ffemu's. The
+virtual clock has no tick signal, so a script on it does not meet that death.
+The script command `crash` makes a fault, a write through a null pointer, to
+test the report.
+
 ## Settings
 
 The ffemu app settings (not to be confused with the Gotek settings in the flash
@@ -369,17 +418,29 @@ writes to flash memory. Also there is a TUI dialog to edit those values right
 in the emulated flash memory; in it, a dark gray `=` at the left of a radio
 button marks the factory default, the value the firmware has when its flash
 memory holds no settings, and at the left of a check box, that it is checked by
-default. The dialog offers only the options that matter to what ffemu
-emulates; the others keep their values. Its last row explains the control or
-the value under the cursor. Note that if the USB drive contains `FF.CFG`,
-settings in it will be read by the firmware on start or restart, and will
-immediately be written to the flash memory over what was there before. So OK,
-which writes the dialog's values to flash and power-cycles the device, first
-checks `FF.CFG` on the drive: if the file sets some of them otherwise, ffemu
-asks whether to change them in `FF.CFG` as well, or, for a drive made from an
-image, which it never writes, whether to write flash anyway.
+default. The dialog offers every option, on two tabs: `Emulated features`, the
+options whose effect ffemu shows, and `Non-ffemu features`, the others, there
+to prepare `FF.CFG` with; PgUp and PgDn, shown at the frame's top right, switch
+tabs. Each option with names for its values is a cluster of radio buttons, in
+which Up and Down choose; Tab and Shift+Tab go from one control to the next,
+Left and Right between OK and Cancel; Up and Down also move within a block of
+check boxes and input lines that belong together, which blank rows set apart,
+and among the buttons; Space switches a check box; a value in flash that
+`FF.CFG` cannot give shows as its number with `(raw)`. The dialog's last row
+explains the control or the value under the cursor, and F1 shows the comment on
+the option in the firmware's example `FF.CFG`, as the file has it, below the
+explanation of the flag under the cursor if that is one of the option's flags,
+such as `slotnr` of `notify-volume`. Note that if
+the USB drive contains `FF.CFG`, settings in it will be read by the firmware on
+start or restart, and will immediately be written to the flash memory over what
+was there before. So OK, which writes the dialog's values to flash and
+power-cycles the device, first checks `FF.CFG` on the drive: if the file sets
+some of them otherwise, ffemu asks whether to change them in `FF.CFG` as well,
+or, for a drive made from an image, which it never writes, whether to write
+flash anyway.
 
-The dialog's buttons `Save all to FF.CFG`, `Save diff-from-defaults to FF.CFG`
+The buttons on its third tab, `Actions`, `Save all to FF.CFG`,
+`Save diff-from-defaults to FF.CFG`
 and `Save diff-from-flash to FF.CFG` write `FF.CFG` on the USB drive, into its
 `FF` folder if it has one, in the directory a drive was made from, or on a real
 drive where the system has it mounted; for a drive made from an image file,
@@ -412,15 +473,20 @@ and the device is power-cycled. The fifth, `Unpack FLASH.DMP to FF.CFG`,
 enabled likewise, writes every option of the dump into `FF.CFG`, where the Save
 buttons write it, the old file kept as `.BAK`, after asking in the same way,
 naming the file it takes and the one it writes; flash stays as it is, and the
-firmware reads the file at the next insertion. The emulated flash memory's
+firmware reads the file at the next insertion. The sixth,
+`Load FF.CFG over defaults`, enabled while the drive holds `FF.CFG`, sets each
+option that the file names as it has it and every other to its default, which
+flash then takes on OK; the firmware itself keeps the flash value of an option
+that `FF.CFG` does not name. The emulated flash memory's
 lines in the settings file are the `[Flash mem]` section at its end: `hex`
 holds the bytes of the flash memory, and the options follow in `FF.CFG` syntax,
 so that lines can be copied between the two; a number after `0x` stands for
 bytes that no `FF.CFG` value gives. On loading, the hex applies first and the
 options on top, with a warning in the console for an option that differs from
 the hex, is not in this firmware, or has a value that does not fit. The Flash
-mem pane shows the same options: those changed from the defaults in yellow, the
-rest in gray, and the raw numbers in magenta.
+mem pane shows the same options: those at their defaults in light gray, the
+others colored as the settings of `FF.CFG` beside the display, with a raw
+number in magenta.
 
 ## Scripting
 
@@ -441,9 +507,20 @@ directory and inserts such a drive again as the Externals dialog does,
 `sleep <ms>`, `dump` (the display as text: an LCD as its rows of characters
 between bars, a 7-segment display as its digits drawn with `_` and `|` in
 three rows, a lit point as `.`), `log` (the firmware's console output so far),
-`status`, `flash` (the `[Flash mem]` section as the flash memory is now), `osd`
-(FF OSD's text, its rows between bars), and `save <file>`, which writes the USB
-drive as the firmware sees it, its writes included, to an image file.
+`status`, `flash` (the `[Flash mem]` section as the flash memory is now),
+`options` (what each option of the Flash mem dialog takes: its name, its kind,
+`number`, `string`, `yes-no`, `named` or `text`, and its names and flags, the
+flags after `+`), `check-dialogs` (every dialog drawn on a screen of 120 by 50
+that goes nowhere, each part drawn over another or cut at its width named),
+`osd` (FF OSD's text, its rows between bars), `imgcfg` (the section of
+`IMG.CFG` that the firmware applies to the image mounted, as the IMG.CFG pane
+shows it, its lines between bars), `save <file>`, which writes the
+USB drive as the firmware sees it, its writes included, to an image file,
+`unpack <folder>`, which writes its files and folders under a folder, and
+`crash`, a write through a null pointer, which tests the crash report.
+When the commands end with `key quit`, or the input ends, ffemu prints `quit`
+as its last line, so that a caller can tell that end from a death, which a
+parent in the MSYS2 runtime sees as an exit with 0.
 
 `wait <ms> <log|display|segments> <text>` lets the firmware run until a
 condition holds, checked every 10 ms, or `<ms>` pass, and prints which, as
@@ -488,8 +565,8 @@ with `FFEMU_CLOCK=host` set on the host's.
   of the firmware's floppy code: an idle in the loop that runs while an image
   is mounted, and the image's name for the Status window.
 - `cpu.c`: the interrupt controller, a 1 ms tick delivered as a signal to the
-  thread that runs the firmware, cancellable calls, and reset, which
-  re-executes the program.
+  thread that runs the firmware on the host's clock, cancellable calls, and
+  reset, which re-executes the program.
 - `ssd1306.c`: the OLED's controller, an SSD1306 or an SH1106, as an I2C slave.
 - `hd44780.c`: the LCD, an HD44780 controller behind a PCF8574 port expander as
   an I2C slave, and its characters as pixels from the font of the character ROM
@@ -498,8 +575,12 @@ with `FFEMU_CLOCK=host` set on the host's.
   registers on two GPIO lines, and its digits as pixels.
 - `osd.c`: FF OSD as an I2C slave, and its text as pixels in its font,
   `osd_font.h`, a copy of FF OSD's own.
+- `imgcfg.c`: the section of `IMG.CFG` that the firmware applies to the image
+  mounted, chosen as the firmware's `img.c` chooses it.
 - `fatimg.c`: the USB drive: the FAT32 or FAT16 volume built from a directory,
   or an image or a disk read as it is, with the firmware's writes kept aside.
+- `crash.c`: the report of a crash, on Linux by glibc's `backtrace()`, on
+  Windows by unwinding the fault's own context.
 - `tui.c`, `script.c`, `rc.c`, `ffemu.c`: the terminal user interface, the
   script driver, the preferences and the main program.
 

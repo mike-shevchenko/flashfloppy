@@ -25,6 +25,7 @@
 #define FFEMU_MULTI 0
 #endif
 
+#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include "emu.h"
@@ -316,6 +317,22 @@ bool usb_medium_has(const char *name83);
 /* Whether the drive holds that file as the firmware wrote it, its data in
  * ffemu's store of the firmware's writes. */
 bool usb_written_file(const char *name83);
+/* The section of IMG.CFG that the firmware applies to the image mounted,
+ * chosen as the firmware chooses it, for the IMG.CFG window and the script;
+ * read again when the drive is written or FF.CFG is read again. */
+enum {
+    IMGCFG_none,       /* no drive, no raw sector image mounted, no IMG.CFG */
+    IMGCFG_no_section, /* no section of IMG.CFG applies to the image */
+    IMGCFG_section,    /* the section @header names, @text its lines */
+};
+struct imgcfg_view {
+    int state;         /* IMGCFG_* */
+    char header[80];   /* "[tag::size]" as parsed; "" for the default */
+    const char *text;  /* from the section's header line to its last */
+    unsigned int nr_lines;
+};
+void imgcfg_get_view(struct imgcfg_view *v);
+
 /* While the drive is out, usb_get_info() and usb_ff_cfg_text() tell of the
  * FF.CFG of the last drive. */
 /* Where FF.CFG is, or would be, under directory @dir, as a path relative
@@ -324,6 +341,29 @@ void usb_ff_cfg_place(const char *dir, char *buf, size_t size);
 /* Writes the drive as the firmware sees it to file @path; if that fails,
  * says why in @err. */
 bool usb_save(const char *path, char *err, size_t size);
+/* Writes the files of the drive as the firmware sees it, and its folders,
+ * under directory @dir, as the firmware's writes are kept as files; if that
+ * fails, says why in @err. */
+bool usb_unpack(const char *dir, char *err, size_t size);
+/* The folder saved/ beside drive/, "" if ffemu has no state folder; the
+ * path of a new drive-YYYYMMDD-HHMMSS@suffix in it, which _path() makes,
+ * false if there is none. */
+const char *usb_saved_dir(void);
+bool usb_saved_path(const char *suffix, char *buf, size_t size);
+/* The firmware's writes as files: the drive's files that they made differ
+ * from the medium's, kept in the folder drive/ under ffemu's state folder
+ * @dir, which usb_drive_dir() names. */
+void usb_set_state_dir(const char *dir);
+const char *usb_drive_dir(void);
+/* A pass over the drive's files, keeping the folder up to date; _written()
+ * only if the firmware wrote since the last pass; _finish() before a quit,
+ * waiting for its writes to be quiet first if @wait. */
+void usb_drive_pass(void);
+void usb_drive_pass_written(void);
+void usb_drive_finish(bool wait);
+/* Makes a pass once the firmware's writes have been quiet for a while, on
+ * the host's clock. */
+void *usb_drive_thread(void *unused);
 
 /*
  * cfgfile.c
@@ -350,6 +390,20 @@ bool ff_cfg_target(char *dir, size_t dsize, char *place, size_t psize,
  * file now, from the last line for it, into @value; false if there is no
  * drive, file or such line. */
 bool ff_cfg_file_option(const char *name, char *value, size_t size);
+/* Sets each option of @cfg that the drive's FF.CFG names as the file has
+ * it, from its last line for it, counting the lines taken in @nr_set and
+ * those not in @nr_bad; false if there is no drive or file. */
+bool ff_cfg_load(void *cfg, unsigned int *nr_set, unsigned int *nr_bad);
+/* The lines of the firmware's example FF.CFG that document option @name:
+ * the comment above its line, which options on the lines next to it share,
+ * and those option lines, at most @max, their starts in @lines and lengths
+ * in @len. Returns how many, 0 if the example has no such option. */
+unsigned int ff_cfg_doc(const char *name, const char **lines, int *len,
+                        unsigned int max);
+/* The line of that comment on value @item of option @name, as "item: what
+ * it does", into @buf; false if it has none. */
+bool ff_cfg_item_doc(const char *name, const char *item, char *buf,
+                     size_t size);
 /* Sets options @names to @values, @nr of them, in the drive's FF.CFG, where
  * it has lines for them, on a drive made from a directory or a disk the
  * system has mounted: each such line rewritten in place, in one pass, the
@@ -469,6 +523,11 @@ const char *size_text(uint64_t bytes, char *buf, size_t size);
 void ui_action(int act);
 /* Call often: releases the buttons and completes a re-insertion. */
 void ui_poll(void);
+
+/* Draws every dialog in each of its states on a screen of its own, printing
+ * each part of one drawn over another part or over the dialog's frame, and
+ * how many; -1 without curses. */
+int ui_check_dialogs(void);
 /* The encoder directions turned a moment ago, to show: UI_ROTARY_*. */
 #define UI_ROTARY_cw 1
 #define UI_ROTARY_ccw 2
@@ -531,6 +590,21 @@ void host_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #define LOG_FW_RESET "======= Firmware reset ======="
 
 /*
+ * crash.c
+ */
+
+/* Prepares the report of a crash: written to standard error, and to @log_fd
+ * unless it is -1, after @restore has given the terminal back. */
+void crash_init(int log_fd, void (*restore)(void));
+/* Names the calling thread in a report of its crash, and gives it a stack of
+ * its own for the report, a handler with SA_ONSTACK running on it. */
+void crash_name_thread(const char *name);
+/* Writes the report of fault @sig, with @si and @uc as its SA_SIGINFO handler
+ * got them, the terminal given back first; a fault while reporting ends the
+ * program. */
+void crash_report(int sig, const siginfo_t *si, void *uc);
+
+/*
  * tui.c
  */
 
@@ -551,5 +625,9 @@ void tui_stop_fatal(void);
 void script_start(unsigned int sleep_ms);
 /* Milliseconds left of the script's current sleep. */
 unsigned int script_sleep_left(void);
+/* Writes the line "quit", which ends a script's output when ffemu ends by a
+ * request to quit, if a script runs: by write() alone, stdout being flushed
+ * by then. */
+void script_end(void);
 
 #endif /* FFEMU_HOST_H */

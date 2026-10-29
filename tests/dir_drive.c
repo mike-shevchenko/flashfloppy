@@ -5,7 +5,7 @@
  * what fatimg.c needs of the rest of ffemu, and the folders of files that
  * the tests have it built from.
  *
- * Written & released by Mike Shevchenko <mike.shevchenko.kz@gmail.com>
+ * Written & released by Mike Shevchenko <mike.shevchenko@gmail.com>
  *
  * This is free and unencumbered software released into the public domain.
  * See the file COPYING for more details, or visit <http://unlicense.org>.
@@ -41,6 +41,35 @@ void cpu_quit(int code, const char *msg)
     if (msg != NULL)
         fprintf(stderr, "%s\n", msg);
     exit(code);
+}
+
+/* The firmware's writes kept as files need these, which no test reaches:
+ * the tests set no state folder, so no pass is made. */
+void make_dirs(char *dir)
+{
+    (void)dir;
+}
+
+void own_file(const char *path)
+{
+    (void)path;
+}
+
+void host_log(const char *fmt, ...)
+{
+    (void)fmt;
+}
+
+const char *user_path(const char *path, char *buf, size_t size)
+{
+    (void)buf;
+    (void)size;
+    return path;
+}
+
+void crash_name_thread(const char *name)
+{
+    (void)name;
 }
 
 static char dir[512];

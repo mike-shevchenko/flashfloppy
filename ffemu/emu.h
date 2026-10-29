@@ -162,7 +162,10 @@ int emu_fdd_detected(void);
  * mode, the cylinder of the head, the side, whether it is selected, and the
  * image mounted, or NULL. */
 void emu_fdd_status(int *apple2, unsigned int *cyl, unsigned int *side,
-                    int *sel, const char **image);
+                    int *sel, const char **name);
+/* The image mounted, for the IMG.CFG window: its name without its
+ * extension, the extension, and its size in bytes; FALSE if none is. */
+int emu_fdd_image(const char **name, const char **type, unsigned int *size);
 unsigned int emu_arena_used(void);
 unsigned int emu_arena_size(void);
 
@@ -186,6 +189,27 @@ const char *emu_flash_option(unsigned int i, const void *cfg, char *value,
 #define EMU_OPT_changed  1 /* it differs from the default */
 #define EMU_OPT_raw      2 /* a number, which FF.CFG would not give */
 #define EMU_OPT_hex_only 4 /* FF.CFG cannot express it: @value is empty */
+/* What option @i takes, for an editor of it, into @o. */
+struct emu_named {
+    const char *name;
+    unsigned int value;
+};
+struct emu_option_info {
+    int kind;
+    /* Its names, in FF.CFG's order, an alias after the name it stands for;
+     * and its flags, which commas add, by their bits. */
+    const struct emu_named *values, *flags;
+    unsigned int nr_values, nr_flags;
+    /* The bits that a name or number sets, 0 for all; the value that a list
+     * of flags alone starts from; and the size in bytes. */
+    unsigned int mask, start, size;
+};
+#define EMU_KIND_text   0 /* parsed by code of its own, such as display-type */
+#define EMU_KIND_number 1
+#define EMU_KIND_string 2 /* in quotes */
+#define EMU_KIND_yes_no 3
+#define EMU_KIND_named  4
+void emu_flash_option_info(unsigned int i, struct emu_option_info *o);
 /* Sets option @name in @cfg from @value, as FF.CFG has it or as a number
  * after "0x". */
 int emu_flash_set_option(void *cfg, const char *name, const char *value);

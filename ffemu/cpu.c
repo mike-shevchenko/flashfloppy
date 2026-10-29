@@ -2,13 +2,13 @@
  * cpu.c
  *
  * The emulated CPU core as far as the firmware can tell: an interrupt
- * controller with priorities, a 1 ms tick that preempts the firmware the way
- * interrupts do, cancellable calls, time, and reset.
+ * controller with priorities, a 1 ms tick on the host's clock that preempts
+ * the firmware the way interrupts do, cancellable calls, time, and reset.
  *
  * The firmware runs in the main thread. Its interrupt handlers run in that
- * same thread, either from the tick signal or at the points where the
- * firmware unmasks interrupts, so they nest on the firmware's stack just as
- * exceptions do on the real MCU.
+ * same thread, from the tick signal and at the points where the firmware
+ * unmasks interrupts or calls into ffemu, so they nest on the firmware's
+ * stack just as exceptions do on the real MCU.
  *
  * This is free and unencumbered software released into the public domain.
  * See the file COPYING for more details, or visit <http://unlicense.org>.
@@ -324,12 +324,15 @@ uint64_t emu_time_ns(void)
 }
 
 /* Moves the virtual clock on to @t, after waiting while the script lets the
- * firmware run no further, or carries out a request to quit or restart then:
- * on Cygwin the tick that otherwise does so was seen held back for seconds. */
+ * firmware run no further, or carries out a request to quit or restart that
+ * comes then. */
 static void virt_move(uint64_t t)
 {
     uint64_t limit;
 
+    /* The firmware's files as they stand when the script takes over. */
+    if (t > virt_limit)
+        usb_drive_pass_written();
     /* One read of the limit, which the script may raise meanwhile. */
     while (t > (limit = virt_limit)) {
         if (virt_now < limit)
@@ -360,6 +363,10 @@ static void virt_check(void)
      * while the firmware waits for it, nor in the middle of a sync. */
     if (!pthread_equal(pthread_self(), fw_tid) || emu_hw_busy())
         return;
+    /* A request that comes while the firmware works, which no tick takes on
+     * the virtual clock. */
+    if (request != REQ_none)
+        take_request();
     if (virt_blocks < virt_move_at) {
         virt_check_at = virt_blocks + VIRT_SYNC_BLOCKS;
         if (virt_check_at > virt_move_at)
@@ -611,6 +618,7 @@ int emu_on_hw_thread(void)
 
 static void *hw_thread(void *unused)
 {
+    crash_name_thread("bus");
     /* It must know itself before it runs a model, which pends interrupts. */
     while (!hw_started)
         sleep_us(100);
@@ -649,28 +657,29 @@ static void tty_restore(void)
         tcsetattr(STDIN_FILENO, TCSANOW, &tty_mode);
 }
 
-/* A signal that ends the program: the terminal gets its screen and modes
- * back, as far as a signal handler can do that, and then the signal takes
- * its course. */
-static void on_fatal(int sig)
+/* The terminal's screen and modes back, as far as a signal handler can. */
+static void restore_terminal(void)
 {
-    static const char crashed[] = "\nffemu: crashed with signal ";
-    char nr[3] = { '0' + (sig / 10) % 10, '0' + sig % 10, '\n' };
-
     tui_stop_fatal();
     tty_restore();
+}
 
-    /* A fault re-raised from within the tick's handler can end the program
-     * with status 0 on Cygwin: say so, and leave with a signal's status. */
-    if ((sig == SIGSEGV) || (sig == SIGBUS) || (sig == SIGILL)
-        || (sig == SIGFPE) || (sig == SIGABRT)) {
-        (void)!write(STDERR_FILENO, crashed, sizeof(crashed) - 1);
-        (void)!write(STDERR_FILENO, nr, sizeof(nr));
-        _exit(128 + sig);
-    }
-
+/* A signal that ends the program: the terminal gets its screen and modes
+ * back, and then the signal takes its course. */
+static void on_fatal(int sig)
+{
+    restore_terminal();
     signal(sig, SIG_DFL);
     raise(sig);
+}
+
+/* A fault: the terminal back, a report of where, and the end with a signal's
+ * status, which a fault re-raised from within the tick's handler does not
+ * give on Cygwin. */
+static void on_fault(int sig, siginfo_t *si, void *uc)
+{
+    crash_report(sig, si, uc);
+    _exit(128 + sig);
 }
 
 /* A firmware that waits for a button by spinning on a variable that only its
@@ -721,6 +730,7 @@ static void take_request(void)
     tui_stop();
     if (request == REQ_restart)
         restart();
+    script_end();
     _exit(0);
 }
 
@@ -729,9 +739,8 @@ static void on_tick(int sig)
     int saved_errno = errno;
     if (request != REQ_none)
         take_request();
-    /* On the virtual clock the firmware's own reads, waits and blocks run
-     * the models; a tick within the throttle's sleep has nothing to run. */
-    if (virtual_clock || throttling) {
+    /* A tick within the throttle's sleep has nothing to run. */
+    if (throttling) {
         errno = saved_errno;
         return;
     }
@@ -804,6 +813,7 @@ static void open_log(void)
     else
         return;
     make_dirs(dir);
+    usb_set_state_dir(dir);
 
     snprintf(path, sizeof(path), "%s/console.log", dir);
     snprintf(bak, sizeof(bak), "%s/console.bak", dir);
@@ -1015,12 +1025,16 @@ void cpu_restart(void)
  * leaves to the tick handler only what must happen in the firmware thread. */
 void cpu_request_restart(void)
 {
+    usb_drive_pass();
     prepare_restart();
     request = REQ_restart;
 }
 
 void cpu_request_quit(void)
 {
+    /* On the virtual clock the firmware waits for the script: it writes no
+     * more. */
+    usb_drive_finish(!virtual_clock);
     fflush(NULL);
     request = REQ_quit;
 }
@@ -1032,6 +1046,7 @@ void cpu_request_relaunch(void)
     uint32_t layout;
     int fd;
 
+    usb_drive_pass();
     usb_get_store(&fd, &layout);
     if (fd >= 0)
         fcntl(fd, F_SETFD, FD_CLOEXEC);
@@ -1054,8 +1069,11 @@ const char *cpu_restart_state(void)
 
 void cpu_init(char **argv)
 {
+    static const int faults[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT };
     const char *hex = getenv("FFEMU_FLASH"), *tty = getenv("FFEMU_TTY");
     const char *clock = getenv("FFEMU_CLOCK");
+    struct sigaction sa;
+    unsigned int i;
 
     saved_argv = argv;
     clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -1113,11 +1131,16 @@ void cpu_init(char **argv)
     signal(SIGINT, on_fatal);
     signal(SIGQUIT, on_fatal);
     signal(SIGTERM, on_fatal);
-    signal(SIGILL, on_fatal);
-    signal(SIGABRT, on_fatal);
-    signal(SIGFPE, on_fatal);
-    signal(SIGBUS, on_fatal);
-    signal(SIGSEGV, on_fatal);
+    crash_init(log_fd, restore_terminal);
+    crash_name_thread("main");
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = on_fault;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigemptyset(&sa.sa_mask);
+    /* No tick, which runs the models and interrupts, within the report. */
+    sigaddset(&sa.sa_mask, SIGALRM);
+    for (i = 0; i < ARRAY_SIZE(faults); i++)
+        sigaction(faults[i], &sa, NULL);
 
     /* Threads created from now on must not take the tick. */
     block_tick(SIG_BLOCK);
@@ -1128,19 +1151,25 @@ void cpu_start(void)
     struct sigaction sa;
     struct itimerval it;
 
-    /* SA_NODEFER: a handler that waits on a peripheral is released by the
-     * next tick, which therefore must be able to nest. */
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = on_tick;
-    sa.sa_flags = SA_NODEFER | SA_RESTART;
-    sigemptyset(&sa.sa_mask);
-    sigaction(SIGALRM, &sa, NULL);
+    /* No tick on the virtual clock, whose firmware thread runs the models and
+     * takes requests by itself: Cygwin delivers a signal to a thread in user
+     * code by a single step, whose trap flag it may leave set under load. */
+    if (!virtual_clock) {
+        /* SA_NODEFER: a handler that waits on a peripheral is released by
+         * the next tick, which therefore must be able to nest. */
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_handler = on_tick;
+        sa.sa_flags = SA_NODEFER | SA_RESTART;
+        sigemptyset(&sa.sa_mask);
+        sigaction(SIGALRM, &sa, NULL);
 
-    it.it_interval.tv_sec = it.it_value.tv_sec = 0;
-    it.it_interval.tv_usec = it.it_value.tv_usec = 1000;
-    setitimer(ITIMER_REAL, &it, NULL);
+        it.it_interval.tv_sec = it.it_value.tv_sec = 0;
+        it.it_interval.tv_usec = it.it_value.tv_usec = 1000;
+        setitimer(ITIMER_REAL, &it, NULL);
+    }
 
     fw_tid = pthread_self();
+    crash_name_thread("firmware");
     if (virtual_clock)
         virt_recount(VIRT_STILL_BLOCKS);
     /* Created while the tick is still blocked, which it inherits; on the
@@ -1148,6 +1177,13 @@ void cpu_start(void)
     if (!virtual_clock
         && (pthread_create(&hw_tid, NULL, hw_thread, NULL) == 0))
         hw_started = true;
+    /* The firmware's files are kept by a thread of their own on the host's
+     * clock, by the firmware's thread as it waits for the script on the
+     * virtual one. */
+    if (!virtual_clock) {
+        pthread_t drive_tid;
+        pthread_create(&drive_tid, NULL, usb_drive_thread, NULL);
+    }
 
     block_tick(SIG_UNBLOCK);
 }

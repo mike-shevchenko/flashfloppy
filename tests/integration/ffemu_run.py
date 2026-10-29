@@ -23,6 +23,18 @@ OUT = os.environ.get("FFEMU_OUT", os.path.join(ROOT, "out"))
 CLOCK = os.environ.get("FFEMU_CLOCK", "virtual")
 LED_7SEG_C = os.path.join(ROOT, "src", "display", "led_7seg.c")
 
+# What the status of a run that Windows ended by an exception means.
+EXCEPTIONS = {
+    0x80000004: "STATUS_SINGLE_STEP: a trap that the MSYS2 runtime leaves "
+    "behind when a signal's delivery times out under load, see "
+    "ffemu/README.md",
+}
+# The threads of Windows process {pid}: state, wait reason and CPU time.
+WINDOWS_THREADS = (
+    "(Get-Process -Id {pid}).Threads | ForEach-Object {{ '{{0}} {{1}} {{2}} "
+    "{{3}}' -f $_.Id, $_.ThreadState, $(if ($_.ThreadState -eq 'Wait') "
+    "{{ $_.WaitReason }} else {{ '-' }}), $_.TotalProcessorTime }}")
+
 WAIT_RE = re.compile(r"^wait (\w+) (.*): (ok|timed out) after (\d+) ms$")
 FIRMWARE_RE = re.compile(r"^firmware: ([^,]*), ")
 
@@ -38,13 +50,16 @@ def program(name):
 
 
 class Run:
-    """What one run of a program printed, and the settings it left."""
+    """What one run of a program printed, the settings it left, and the
+    files of its state folder's drive/, the firmware's writes as files, by
+    their paths there."""
 
-    def __init__(self, stdout, stderr, returncode, ffemurc):
+    def __init__(self, stdout, stderr, returncode, ffemurc, files=None):
         self.stdout = stdout
         self.stderr = stderr
         self.returncode = returncode
         self.ffemurc = ffemurc
+        self.files = files or {}
         self.lines = stdout.splitlines()
 
     def waits(self):
@@ -71,16 +86,67 @@ class Run:
 
     def report(self):
         """The output, for a failure's message."""
-        return "exit %d\n--- stdout:\n%s--- stderr:\n%s" % (
-            self.returncode, self.stdout, self.stderr)
+        return "%s\n--- stdout:\n%s--- stderr:\n%s" % (
+            status(self.returncode), self.stdout, self.stderr)
+
+
+def status(code):
+    """Exit status @code in words: on Windows the code of an exception that
+    ended the run, in hex."""
+    if code < 0x80000000:
+        return "exit %d" % code
+    return "exit 0x%08x %s" % (code, EXCEPTIONS.get(code, "(an exception)"))
+
+
+def threads(pid):
+    """The threads of running process @pid, a line each, or why not."""
+    try:
+        if sys.platform.startswith("linux"):
+            lines = []
+            task = "/proc/%d/task" % pid
+            for t in sorted(os.listdir(task), key=int):
+                fields = []
+                for name in ("comm", "status", "wchan"):
+                    with open(os.path.join(task, t, name)) as f:
+                        fields.append(f.read().strip())
+                state = re.search(r"^State:\s*(.*)$", fields[1], re.M)
+                lines.append("%s %s %s %s" % (
+                    t, fields[0], state.group(1) if state else "?",
+                    fields[2]))
+            return "\n".join(lines)
+        if sys.platform in ("cygwin", "msys"):
+            with open("/proc/%d/winpid" % pid) as f:
+                pid = int(f.read())
+        p = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command",
+             WINDOWS_THREADS.format(pid=pid)],
+            capture_output=True, text=True, timeout=60)
+        return (p.stdout + p.stderr).rstrip()
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        return "(not listed: %s)" % e
+
+
+def read_tree(top):
+    """The files under folder @top, by their paths relative to it."""
+    out = {}
+    for d, _, names in os.walk(top):
+        for n in names:
+            path = os.path.join(d, n)
+            with open(path, "rb") as f:
+                out[os.path.relpath(path, top).replace(os.sep, "/")] = f.read()
+    return out
 
 
 def run(name, commands, settings=(), flash=(), ffemurc=None, files=None,
-        timeout=120):
+        timeout=120, state=None, clock=None, drive_image=None):
     """Runs program @name on @commands, then quits it. Its settings are the
     lines @settings, then a [Flash mem] section of the lines @flash if any,
     unless @ffemurc gives the whole file; its USB drive is a folder holding
-    @files, a dict of names and contents."""
+    @files, a dict of paths and contents, or image file @drive_image. Its
+    state folder is @state, else one of its own; its clock @clock, else
+    CLOCK's. A run that exits with 0 but does not print "quit" last raises
+    an error: it died, as an MSYS2 parent sees a process that an exception
+    ended."""
     if name == "ffemu": name = "ffemu-shugart"
     with tempfile.TemporaryDirectory(prefix="ffemu-test-") as tmp:
         config = os.path.join(tmp, "config")
@@ -96,20 +162,43 @@ def run(name, commands, settings=(), flash=(), ffemurc=None, files=None,
         drive = os.path.join(tmp, "drive")
         os.makedirs(drive)
         for fname, data in (files or {}).items():
-            with open(os.path.join(drive, fname), "wb") as f:
+            path = os.path.join(drive, fname)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
                 f.write(data if isinstance(data, bytes) else data.encode())
+        state = state or os.path.join(tmp, "state")
         env = dict(
-            os.environ, XDG_CONFIG_HOME=config,
-            XDG_STATE_HOME=os.path.join(tmp, "state"), FFEMU_CLOCK=CLOCK)
+            os.environ, XDG_CONFIG_HOME=config, XDG_STATE_HOME=state,
+            FFEMU_CLOCK=clock or CLOCK)
         script = "".join(c + "\n" for c in list(commands) + ["key quit"])
-        p = subprocess.run(
-            [program(name), drive], input=script.encode(), env=env,
-            capture_output=True, timeout=timeout)
+        with subprocess.Popen(
+                [program(name), drive_image or drive],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                env=env) as p:
+            try:
+                out, err = p.communicate(script.encode(), timeout=timeout)
+            except subprocess.TimeoutExpired:
+                listed = threads(p.pid)
+                p.kill()
+                out, err = p.communicate()
+                raise TimeoutError(
+                    "%s did not end within %d s; its threads:\n%s\n"
+                    "--- stdout:\n%s--- stderr:\n%s" % (
+                        name, timeout, listed, out.decode(errors="replace"),
+                        err.decode(errors="replace"))) from None
         with open(rc, newline="") as f:
             left = f.read()
-    return Run(
-        p.stdout.decode(errors="replace"), p.stderr.decode(errors="replace"),
-        p.returncode, left)
+        written = read_tree(os.path.join(state, name, "drive"))
+    r = Run(
+        out.decode(errors="replace"), err.decode(errors="replace"),
+        p.returncode, left, written)
+    if r.returncode == 0 and r.lines[-1:] != ["quit"]:
+        raise RuntimeError(
+            "%s exited with 0 without printing quit last: it died, as an "
+            "MSYS2 parent sees a process that an exception ended\n%s" % (
+                name, r.report()))
+    return r
 
 
 _versions = {}

@@ -5,7 +5,7 @@
  * lcd_common.c, whose text row converters and the drivers' draw it for a
  * character OLED_SPINNER plus the phases on.
  *
- * Written & released by Mike Shevchenko <mike.shevchenko.kz@gmail.com>
+ * Written & released by Mike Shevchenko <mike.shevchenko@gmail.com>
  *
  * This is free and unencumbered software released into the public domain.
  * See the file COPYING for more details, or visit <http://unlicense.org>.
