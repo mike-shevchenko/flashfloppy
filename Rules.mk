@@ -57,7 +57,6 @@ ifneq ($(fw307),)
 FLAGS += -DAPPLE2_FW307=$(if $(filter y,$(fw307)),1,0)
 endif
 
-FLAGS += -MMD -MF .$(@F).d
 DEPS = .*.d
 
 FLAGS += $(FLAGS-y)
@@ -65,6 +64,11 @@ FLAGS += $(FLAGS-y)
 CFLAGS := $(CFLAGS-y) $(FLAGS) $(EXTRA_CFLAGS) -include decls.h
 AFLAGS := $(AFLAGS-y) $(FLAGS) -include build_enums.h -D__ASSEMBLY__
 LDFLAGS := $(LDFLAGS-y) $(FLAGS) -Wl,--gc-sections
+
+# Each object's dependency file is named after it, so $(@F) must expand in its
+# own recipe; private keeps build.o's objects from inheriting the flags.
+%.o: private CFLAGS += -MMD -MF .$(@F).d
+%.o %.ld: private AFLAGS += -MMD -MF .$(@F).d
 
 # Reduce space wasted on alignment padding between sections.
 LDFLAGS += -Wl,--sort-section=alignment
