@@ -57,8 +57,8 @@ ifneq ($(fw307),)
 FLAGS += -DAPPLE2_FW307=$(if $(filter y,$(fw307)),1,0)
 endif
 
-FLAGS += -MMD -MF .$(@F).d
-DEPS = .*.d
+FLAGS += -MMD -MP
+DEPS = *.d
 
 FLAGS += $(FLAGS-y)
 
