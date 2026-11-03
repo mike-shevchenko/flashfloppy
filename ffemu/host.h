@@ -140,9 +140,10 @@ void oled_i2c_stop(void);
 #define LCD_MAX_COLS 40
 #define LCD_MAX_ROWS 4
 
-/* The character ROMs that ffemu has for the LCD, by their names in the
- * settings file and on the screen, with a line of help for each. */
-enum { LCD_ROM_cyr, LCD_ROM_a00, LCD_ROM_nr };
+/* The character ROMs that ffemu has for the LCD, named and ordered as the
+ * firmware's lcd-charset values, by their names in the settings file and on
+ * the screen, with a line of help for each. */
+enum { LCD_ROM_a00, LCD_ROM_a02, LCD_ROM_cyr, LCD_ROM_nr };
 extern const char * const lcd_rom_name[LCD_ROM_nr];
 extern const char * const lcd_rom_label[LCD_ROM_nr];
 extern const char * const lcd_rom_help[LCD_ROM_nr];
@@ -155,6 +156,7 @@ struct lcd_view {
     int rom;                 /* LCD_ROM_*: its character ROM */
     unsigned int nr_updates; /* counts transactions that wrote characters */
     uint8_t text[LCD_MAX_ROWS][LCD_MAX_COLS]; /* the characters shown */
+    uint8_t cgram[64];       /* the user-defined characters, a row a byte */
 };
 
 /* Fits display @display, one of DISP_lcd_*. */
@@ -166,10 +168,11 @@ uint8_t hd44780_i2c_read(void);
 void hd44780_i2c_stop(void);
 /* Sets the character ROM, LCD_ROM_*. */
 void hd44780_set_rom(int rom);
-/* The Unicode code point that code @c stands for in ROM @rom, a space for
- * a blank glyph: 0 for none, a user-defined character or a glyph that no
- * single character matches. */
-unsigned int hd44780_unicode(int rom, uint8_t c);
+/* The Unicode code point that code @c stands for on LCD @v, a space for a
+ * blank glyph, a full block for a user-defined character whose dots are all
+ * set: 0 for none, another user-defined character or a glyph that no single
+ * character matches. */
+unsigned int hd44780_char(const struct lcd_view *v, uint8_t c);
 /* What text shows for a code without a character: a white square, the
  * usual mark of a missing one. */
 #define LCD_MISSING 0x25a1
@@ -177,9 +180,9 @@ unsigned int hd44780_unicode(int rom, uint8_t c);
 void hd44780_size(unsigned int nr_cols, unsigned int nr_rows,
                   unsigned int *w, unsigned int *h);
 /* The characters of @v as pixels, @w by @h bytes, 1 for a dark dot, in a
- * buffer of this module's that the next call reuses; a character without a
- * glyph, a user-defined one included, as a checkerboard; and @dots, 1 for
- * every dot of the character cells, lit or not. */
+ * buffer of this module's that the next call reuses; a user-defined one from
+ * CGRAM, one without a glyph as a checkerboard; and @dots, 1 for every dot
+ * of the character cells, lit or not. */
 void hd44780_pixels(const struct lcd_view *v, const uint8_t **px,
                     const uint8_t **dots, unsigned int *w, unsigned int *h);
 

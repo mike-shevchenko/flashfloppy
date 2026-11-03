@@ -69,10 +69,10 @@ static const struct setting {
         "hd44780-40x2, 74hc164-2digit or tm1651-3digit. Key 0." },
     [SET_lcd_rom] = {
         "lcd-rom",
-        "Character ROM of an LCD: cyr (Latin and upper- and lower-case "
-        "Cyrillic, MELT's and other Cyrillic modules; ffemu/lcd_font_cyr.h) "
-        "or a00 (Latin and Japanese, most other modules; "
-        "ffemu/lcd_font_a00.h). Key 0." },
+        "Character ROM of an LCD: jap (Latin + Japanese: A00; most common "
+        "for generic modules), eur (Latin with Western European accented "
+        "letters: A02) or cyr (Cyrillic (Russian/Bulgarian): MELT, Sitronix "
+        "0T, Winstar CT). Key 0." },
     [SET_oled_8x16] = {
         "oled-8x16",
         "The OLED's 8x16 font: font (the firmware's own) or synth (made from "
@@ -298,6 +298,11 @@ static bool parse_line(char *line)
         }
         return false;
     case SET_lcd_rom:
+        /* The ROM codes used before lcd-rom took the firmware's names. */
+        if (!strcmp(value, "a00"))
+            value = "jap";
+        else if (!strcmp(value, "a02"))
+            value = "eur";
         for (i = 0; i < LCD_ROM_nr; i++) {
             if (!strcmp(value, lcd_rom_name[i])) {
                 config.lcd_rom = i;
@@ -652,7 +657,7 @@ void rc_load(void)
 
     config.style = STYLE_braille;
     config.display = DISP_ssd1306_32;
-    config.lcd_rom = LCD_ROM_cyr;
+    config.lcd_rom = LCD_ROM_a00;
     config.oled_synth = false;
     config.mcu = EMU_MCU_at32f415;
     config.osd = true;
