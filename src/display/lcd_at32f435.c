@@ -164,6 +164,7 @@ static unsigned int osd_prep_buffer(void)
             memcpy(q, text[i], lcd_columns);
         else
             memset(q, ' ', lcd_columns);
+        osd_map_row(q);
         q += lcd_columns;
     }
 
@@ -204,7 +205,7 @@ static unsigned int lcd_prep_buffer(void)
 
     emit8(&q, CMD_SETDDRADDR | row_offs[i2c_row], 0);
     for (i = 0; i < lcd_columns; i++)
-        emit8(&q, p ? *p++ : ' ', _RS);
+        emit8(&q, p ? lcd_char(*p++) : ' ', _RS);
 
     i2c_row++;
 
@@ -500,6 +501,7 @@ bool_t lcd_init(void)
     emit8(&p, CMD_DISPLAYCTL, 0);
     emit8(&p, CMD_ENTRYMODE | 2, 0);
     emit8(&p, CMD_DISPLAYCTL | 4, 0); /* display on */
+    lcd_cgram_block(&p);
     dma_start(p - buffer);
     
     if (!reinit)

@@ -323,6 +323,9 @@ static const struct emu_named notify_flags[] = {
 static const struct emu_named codepage_names[] = {
     { "866", CODEPAGE_866 }, { "mik", CODEPAGE_mik }, { "437", CODEPAGE_437 }
 };
+static const struct emu_named lcd_charset_names[] = {
+    { "jap", LCDCS_jap }, { "eur", LCDCS_eur }, { "cyr", LCDCS_cyr }
+};
 
 /* What each option takes. One not here takes text that code of its own
  * parses, as display-type does, or else a number. */
@@ -380,7 +383,8 @@ static const struct emu_option_info info[OPT_nr] = {
     [OPT_da_report_version] = STRING,
     [OPT_extend_image] = YES_NO,
     [OPT_short_name_codepage] = NAMED(codepage_names),
-    [OPT_detect_utf8_in_short_names] = YES_NO
+    [OPT_detect_utf8_in_short_names] = YES_NO,
+    [OPT_lcd_charset] = NAMED(lcd_charset_names)
 };
 #undef VALUES
 #undef FLAGS
@@ -593,6 +597,14 @@ static bool_t parse_option(unsigned int i, struct ff_cfg *f, const char *text)
     if ((n == 0) || (n >= sizeof(s)))
         return FALSE;
     memcpy(s, text, n + 1);
+
+    /* The ROM codes that lcd-charset used before jap and eur. */
+    if (i == OPT_lcd_charset) {
+        if (!strcmp(s, "a00"))
+            strcpy(s, "jap");
+        else if (!strcmp(s, "a02"))
+            strcpy(s, "eur");
+    }
 
     if ((s[0] == '0') && ((s[1] == 'x') || (s[1] == 'X'))) {
         if (!parse_number(s, &v))
