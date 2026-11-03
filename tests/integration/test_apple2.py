@@ -1,6 +1,5 @@
 """An Apple2 host stepping the head: the apple2 firmware shows the phases
-that the host holds on and the head's position in half tracks, on an LED and
-on an LCD."""
+that the host holds on and the image's track, on an LED and on an LCD."""
 
 import unittest
 
@@ -30,14 +29,14 @@ class Steps(fr.Case, unittest.TestCase):
         one and 2 the middle one, then the position."""
         self.check_steps(
             "tm1651-3digit",
-            [(0, "00 3f 3f"), (2, "10 3f 06"), (2, "40 3f 5b")])
+            [(0, "00 3f 3f"), (2, "10 3f 3f"), (2, "40 3f 06")])
 
     def test_lcd(self):
         """The phases on as their digits, dots for the others, then the
-        position."""
+        image's track."""
         self.check_steps(
             "hd44780-16x2",
-            [(0, ".... T00"), (2, ".1.. T01"), (2, "..2. T02")])
+            [(0, ".... T00"), (2, ".1.. T00"), (2, "..2. T01")])
 
 
 if __name__ == "__main__":
