@@ -556,13 +556,19 @@ void floppy_set_cyl(uint8_t unit, uint8_t cyl)
     }
 }
 
+bool_t floppy_write_active(void)
+{
+    return dma_wr && (dma_wr->state != DMA_inactive);
+}
+
 void floppy_get_track(struct track_info *ti)
 {
     bool_t active = dma_wr != NULL;
     ti->cyl = drive.cyl;
     ti->side = active ? drive.head & (drive.image->nr_sides - 1) : 0;
     ti->sel = drive.sel;
-    ti->writing = (active && dma_wr->state != DMA_inactive);
+    ti->writing = active && (WDATA_TOGGLE
+        ? write_requested(&drive) : (dma_wr->state != DMA_inactive));
     ti->in_da_mode = active ? in_da_mode(drive.image, ti->cyl) : FALSE;
 }
 

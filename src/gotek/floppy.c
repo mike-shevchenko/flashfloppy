@@ -516,6 +516,13 @@ static void IRQ_SIDE_changed(void)
         rdata_stop();
 }
 
+static bool_t write_requested(struct drive *drv)
+{
+    return !(drv->outp & m(outp_wrprot))
+        && !(gpiob->idr & m(pin_wgate))
+        && !(gpioa->idr & m(pin_sel0));
+}
+
 static void IRQ_WGATE(void)
 {
     struct drive *drv = &drive;
@@ -524,8 +531,7 @@ static void IRQ_WGATE(void)
     if (drv->outp & m(outp_wrprot))
         return;
 
-    if ((gpiob->idr & m(pin_wgate))      /* WGATE off? */
-        || (gpioa->idr & m(pin_sel0))) { /* Not selected? */
+    if (!write_requested(drv)) {
         wdata_stop();
     } else {
         rdata_stop();
