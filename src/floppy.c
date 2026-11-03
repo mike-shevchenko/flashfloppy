@@ -562,7 +562,7 @@ void floppy_get_track(struct track_info *ti)
 {
     bool_t active = dma_wr != NULL;
     /* An Apple2 host steps in half tracks: show the track of the image. */
-    ti->cyl = !apple2_detected ? drive.cyl
+    ti->cyl = !apple2_mode ? drive.cyl
         : drive.cyl / (active ? (drive.image->step ?: 1) : 2);
     ti->side = active ? drive.head & (drive.image->nr_sides - 1) : 0;
     ti->sel = drive.sel;
