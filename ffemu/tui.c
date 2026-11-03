@@ -1534,7 +1534,6 @@ static void fdd_panel(int y, int x, int w)
     unsigned int in = emu_in_fdd;
     uint64_t now = emu_time_ns();
     bool apple2 = emu_fdd_type == EMU_FDD_TYPE_apple2;
-    char ph[5];
     int i, c;
 
     put(y, x, w, 0, "FDD:");
@@ -1547,14 +1546,10 @@ static void fdd_panel(int y, int x, int w)
         static const unsigned int bit[6] = {
             EMU_FDD_SEL, EMU_FDD_WRITE, EMU_FDD_PH0, EMU_FDD_PH0 << 1,
             EMU_FDD_PH0 << 2, EMU_FDD_PH0 << 3 };
-        /* From a column left of the Shugart ones, for the kept state of the
-         * phases, which a press of `+` or `-` goes on from. */
         for (i = 0; i < 6; i++) {
             c = 8 + 5 * i;
             put(y, x + c, w - c, SIGNAL(in & bit[i]), "%s", name[i]);
         }
-        put(y, x + 37, w - 37, BRIGHT(CP_good), "%s",
-            ui_fdd_phase_text(ui_fdd_phases(), ph));
         put(y + 1, x + 9, w - 9, KEY(FDD_ACT_sel), "[");
         put(y + 1, x + 14, w - 14, KEY(FDD_ACT_write), ";");
         put(y + 1, x + 19, w - 19, KEY(FDD_ACT_phase_out), "-");

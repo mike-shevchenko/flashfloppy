@@ -144,10 +144,24 @@ void lcd_backlight(bool_t on);
 void lcd_sync(void);
 extern uint8_t lcd_columns, lcd_rows;
 extern bool_t is_oled_display;
-/* A text cell of OLED_SPINNER plus the stepper phases on, as bits 0 to 3,
- * is the OLED's Apple2 phase spinner, over it and the next cell: a control
- * code, so that no text shown, an image's name included, can hold it. */
-#define OLED_SPINNER 0x10
+/* Whether the Apple2 phase indicator uses a spinner rather than a hex digit. */
+#if ((TARGET == TARGET_apple2) || (TARGET == TARGET_multi)) && !defined(MINIMAL_UI)
+#define OLED_SPINNER_ENABLED TRUE
+#else
+#define OLED_SPINNER_ENABLED FALSE
+#endif
+/* Place an Apple2 phase spinner of @width cells at @col of text @row. @phases
+ * has phases 0 to 3 as bits 0 to 3. A width of zero removes it. The text cells
+ * hold ordinary spaces. */
+#if OLED_SPINNER_ENABLED
+void lcd_write_spinner(int row, unsigned int col, unsigned int width,
+                       unsigned int phases);
+#else
+static inline void lcd_write_spinner(int row, unsigned int col,
+                                     unsigned int width, unsigned int phases)
+{
+}
+#endif
 
 /* FF OSD (On Screen Display) */
 extern bool_t has_osd;
