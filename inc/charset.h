@@ -43,6 +43,14 @@ bool_t charset_sfn_match(const uint8_t *dir, const uint16_t *name);
  * 437's characters, then the Russian letters in their alphabet's order. */
 unsigned int charset_key(uint8_t c);
 
+/* FF OSD's font, which ends at 0x7f, beside the LCD ROMs of LCDCS_*. */
+#define CHARSET_osd 3
+
+/* The code that shows character @c in character ROM @rom, LCDCS_* or
+ * CHARSET_osd: the ROM's own glyph of it, else a stand-in, else a mark of
+ * a character that the ROM cannot show. */
+uint8_t charset_to_rom(uint8_t c, unsigned int rom);
+
 /*
  * Local variables:
  * mode: C
