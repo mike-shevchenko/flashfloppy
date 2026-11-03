@@ -36,9 +36,9 @@ class WriteMarks(fr.Case, unittest.TestCase):
         self.check("ffemu", "tm1651-3digit", PC, "00 3f 09", "00 3f 08")
 
     def test_apple2_lcd(self):
-        """`W` in place of the `T` before the track."""
+        """`W` before the track in long."""
         self.check(
-            "ffemu-apple2", "hd44780-16x2", DSK, ".... W00", ".... T00")
+            "ffemu-apple2", "hd44780-16x2", DSK, "W T:00.0", "  T:00.0")
 
     def test_apple2_led(self):
         """The top segment of the phase digit lights."""

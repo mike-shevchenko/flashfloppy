@@ -272,52 +272,71 @@ static void display_write_slot(bool_t nav_mode)
     }
 
     lcd_write(0, 1, -1, msg);
+    lcd_write_spinner(1, 0, 0, 0);
     lcd_on();
 }
 
 /* The track info that the status row shows. */
 static struct track_info lcd_ti;
 
-/* The track in short into @s: the side, then @mode and the track. */
-static void track_short(char *s, const struct track_info *ti, char mode)
+/* Writes the side or phase indicator to @s: spaces for a spinner of @spinner
+ * cells on an Apple2 OLED, its width into @width, else a text digit preceded
+ * by @lead if nonzero and zero into @width. */
+static char *track_indicator(char *s, const struct track_info *ti,
+                             unsigned int spinner, char lead,
+                             unsigned int *width)
 {
-    *s++ = '0' + ti->side;
+    *width = 0;
+    if (apple2_mode && spinner && is_oled_display) {
+        *width = spinner;
+        while (spinner--)
+            *s++ = ' ';
+    } else {
+        if (lead)
+            *s++ = lead;
+        *s++ = apple2_mode
+            ? "0123456789ABCDEF"[ti->phases & 0xf] : '0' + ti->side;
+    }
+    return s;
+}
+
+/* The track in short into @s: the side or phase indicator, then @mode and the
+ * track. */
+static void track_short(char *s, const struct track_info *ti, char mode,
+                        unsigned int spinner, unsigned int *width)
+{
+    s = track_indicator(s, ti, spinner, '\0', width);
     snprintf(s, 5, "%c%02u", mode, ti->cyl);
+}
+
+/* The track in long into @s: "T:", the track and the side or phase indicator. */
+static void track_long(char *s, const struct track_info *ti,
+                       unsigned int *width)
+{
+    snprintf(s, 6, "T:%02u", ti->cyl);
+    s = track_indicator(s + strlen(s), ti, 2, '.', width);
+    *s = '\0';
 }
 
 /* Writes track info @ti to the status row, @mode for the drive's state: `T`,
  * `W` while writing, `*` for a write-protected image, `-` for a button press.
- * In short, the track at the row's right; else after the image's number,
- * @mode, a blank for `T`, "T:", the track and the side. */
+ * With show-tracks-short, the track at the row's right; else after the image's
+ * number, @mode, a blank for `T`, then the track in long. */
 static void lcd_write_track(const struct track_info *ti, char mode)
 {
     char msg[lcd_columns+1], s[12];
-    unsigned int n = lcd_columns - 7;
+    unsigned int n = lcd_columns - 7, width;
 
-    if (apple2_mode) {
-        /* The phase spinner, two cells, then the phases on as "0..3" with
-         * dots for those off, then the track after @mode. An LCD, which has
-         * no glyph for the spinner, gets a blank, and on 16 columns the cell
-         * spared as a blank before @mode. */
-        char ph[5];
-        unsigned int i;
-        for (i = 0; i < 4; i++)
-            ph[i] = (ti->phases & (1u<<i)) ? '0'+i : '.';
-        ph[4] = '\0';
-        snprintf(msg, sizeof(msg),
-                 (lcd_columns > 16) ? " %c %s %c:%02u"
-                 : is_oled_display ? "%c %s%c%02u" : "%c%s %c%02u",
-                 is_oled_display ? OLED_SPINNER | ti->phases : ' ', ph,
-                 mode, ti->cyl);
-        lcd_write(wp_column, 1, -1, msg);
-    } else if (ff_cfg.show_tracks_short) {
-        track_short(s, ti, mode);
+    if (ff_cfg.show_tracks_short) {
+        track_short(s, ti, mode, 2, &width);
         snprintf(msg, sizeof(msg), "%*s%s", n - strlen(s), "", s);
         lcd_write(7, 1, -1, msg);
+        lcd_write_spinner(1, 7 + n - strlen(s), width, ti->phases);
     } else {
-        snprintf(msg, sizeof(msg), "%c T:%02u.%u",
-                 (mode == 'T') ? ' ' : mode, ti->cyl, ti->side);
+        track_long(s, ti, &width);
+        snprintf(msg, sizeof(msg), "%c %s", (mode == 'T') ? ' ' : mode, s);
         lcd_write(wp_column, 1, -1, msg);
+        lcd_write_spinner(1, wp_column + strlen(msg) - width, width, ti->phases);
     }
 }
 
@@ -399,11 +418,13 @@ static void led_7seg_update_track(bool_t force)
 
     if (!showing_track || changed) {
         const static char status[] = { 'k', 'm', 'v', 'w' };
-        if (apple2_mode && (led_7seg_nr_digits() == 3)) {
+        if (apple2_mode && (led_7seg_nr_digits() == 3)
+            && (ti.cyl < 100)) {
             /* The stepper phases on as the four segments of the lower half
              * of the first digit, phases 0 to 3 clockwise round its loop:
              * `d`, `e`, `g` and `c`, so that a seek turns an arc, and its top
-             * segment, `a`, lit while writing. Then the track. */
+             * segment, `a`, lit while writing. Then the track; one of three
+             * digits takes all three, as below. */
             unsigned int ph = ti.phases;
             snprintf(msg, sizeof(msg), "%c%02u",
                      0x80 | ((ph & 3) << 3) | ((ph & 4) << 4)
