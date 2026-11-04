@@ -516,7 +516,7 @@ static void display_write_slot(bool_t nav_mode)
     }
 
     slot_nr_text(slot, cfg.slot_nr);
-    slot_nr_text(max, cfg.max_slot_nr + ff_cfg.show_slot_count_instead_of_max);
+    slot_nr_text(max, cfg.max_slot_nr + 1);
     snprintf(msg, sizeof(msg), "%s/%s%*s%3s D:%u", slot, max,
              (lcd_columns > 16) ? 3 : 1, "",
              typename, cfg.depth);
@@ -600,7 +600,7 @@ static void write_status_track(unsigned int wide, const struct track_info *ti,
     unsigned int width;
 
     if (in_short) {
-        track_short(s, ti, mode, /*spinner_width=*/wide ? 1 : 2, &width);
+        track_short(s, ti, mode, wide ? 1 : 2, &width);
         if (wide) {
             slot_nr_text(slot, cfg.slot_nr);
             snprintf(msg, sizeof(msg), "%s%*s%s", slot,
@@ -649,10 +649,9 @@ static void lcd_write_track(const struct track_info *ti, char mode)
                 if ((row == 4) && (cells == 0) && (name4_column(w) != 0)) {
                     char slot[4], max[4];
                     slot_nr_text(slot, cfg.slot_nr);
-                    slot_nr_text(max, cfg.max_slot_nr + ff_cfg.show_slot_count_instead_of_max);
+                    slot_nr_text(max, cfg.max_slot_nr + 1);
                     snprintf(nr, sizeof(nr), "%s/%s", slot, max);
-                    lcd_write(/*col=*/0, /*row=*/4 | (w ? LCD_WIDE : 0),
-                              /*min=*/name4_column(w), nr);
+                    lcd_write(0, 4 | (w ? LCD_WIDE : 0), name4_column(w), nr);
                 }
                 scroll_init(i);
                 if (!ti->in_da_mode) {
@@ -1710,10 +1709,6 @@ static void read_ff_cfg(void)
 
         case FFCFG_show_tracks_short:
             ff_cfg.show_tracks_short = yes;
-            break;
-
-        case FFCFG_show_slot_count_instead_of_max:
-            ff_cfg.show_slot_count_instead_of_max = yes;
             break;
 
         case FFCFG_show_filename_ext:
@@ -3698,7 +3693,7 @@ out:
 
 static void noinline banner(void)
 {
-    char msg[2][25];
+    char msg[2][41];
 
     switch (display_type) {
 
@@ -3722,27 +3717,40 @@ static void noinline banner(void)
 #undef sep_ch
         break;
 
-    case DT_LCD_OLED:
+    case DT_LCD_OLED: {
+        const char *mark = "";
+        char mem[8];
+        unsigned int version_width;
+
         lcd_clear();
         display_mode = DM_banner; /* double height row 0 */
-#if MCU == MCU_stm32f105
-        lcd_write(0, 0, 0, "FlashFloppy");
-#elif MCU == MCU_at32f435
-        lcd_write(0, 0, 0, "FlashFloppy+");
-#endif
-        snprintf(msg[0], sizeof(msg[0]), "%s%s", fw_ver,
 #if LEVEL == LEVEL_logfile
-                 apple2_detected ? " A2L" : " Log"
+        mark = apple2_detected ? "A2L" : "Log";
 #elif TARGET == TARGET_quickdisk
-                 " QD"
+        mark = "QD";
 #else
-                 apple2_detected ? " A2" : ""
+        mark = apple2_detected ? "A2" : "";
 #endif
-            );
-        snprintf(msg[1], sizeof(msg[1]), "%9s %dkB", msg[0], ram_kb);
+#if MCU == MCU_stm32f105
+        snprintf(msg[0], sizeof(msg[0]), "FlashFloppy%*s%s",
+                 lcd_columns - 11 - strlen(mark), "", mark);
+#elif MCU == MCU_at32f435
+        snprintf(msg[0], sizeof(msg[0]), "FlashFloppy+%*s%s",
+                 lcd_columns - 12 - strlen(mark), "", mark);
+#endif
+        lcd_write(0, 0, 0, msg[0]);
+
+        snprintf(msg[0], sizeof(msg[0]), "%s", fw_ver);
+        snprintf(mem, sizeof(mem), " %uK", ram_kb);
+        version_width = lcd_columns - strlen(mem);
+        if (strlen(msg[0]) > version_width)
+            msg[0][version_width] = '\0';
+        snprintf(msg[1], sizeof(msg[1]), "%s%*s%s", msg[0],
+                 lcd_columns - strlen(msg[0]) - strlen(mem), "", mem);
         lcd_write(0, 1, 0, msg[1]);
         lcd_on();
         break;
+    }
 
     }
 }
