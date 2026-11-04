@@ -412,7 +412,7 @@ class DoubleWidth(Case, unittest.TestCase):
     def test_status_short(self):
         self.check(
             "ffemu", steps(100), "1w,0",
-            {"6x13": "     0T100", "8x16": "   0T100"},
+            {"6x13": "000  0T100", "8x16": "0000T100"},
             flash=["show-tracks-short = yes"])
 
     def test_status_unmounted(self):
@@ -469,7 +469,7 @@ class DoubleWidth(Case, unittest.TestCase):
     def test_apple2_status_short(self):
         self.check(
             "ffemu-apple2", ["key phase-in"], "1w,0",
-            {"6x13": "      @T00", "8x16": "    @T00"}, files=DSK,
+            {"6x13": "000   @T00", "8x16": "000 @T00"}, files=DSK,
             flash=["show-tracks-short = yes"])
 
     def test_apple2_status_three_digits(self):
