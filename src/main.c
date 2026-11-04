@@ -554,7 +554,11 @@ static void write_status_track(unsigned int wide, const struct track_info *ti,
 
     if (in_short) {
         track_short(s, ti, mode, wide ? 1 : 2);
-        snprintf(msg, sizeof(msg), "%*s%s", n - strlen(s), "", s);
+        if (wide)
+            snprintf(msg, sizeof(msg), "%03u%*s%s", cfg.slot_nr,
+                     n - 3 - strlen(s), "", s);
+        else
+            snprintf(msg, sizeof(msg), "%*s%s", n - strlen(s), "", s);
     } else {
         track_long(s, ti);
         snprintf(msg, sizeof(msg), "%c%*s%s", (mode == 'T') ? ' ' : mode,
