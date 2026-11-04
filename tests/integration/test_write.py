@@ -26,12 +26,12 @@ class WriteMarks(fr.Case, unittest.TestCase):
             settings=["display = " + display], files=files)
         self.assertWaits(r, 3)
 
-    def test_step_dir_lcd(self):
+    def test_shugart_lcd(self):
         """W before the track."""
         self.check(
             "ffemu", "hd44780-16x2", PC, "000/000W T:", "000/000  T:")
 
-    def test_step_dir_led(self):
+    def test_shugart_led(self):
         """The side's letter after the track, k for side 0, becomes v."""
         self.check("ffemu", "tm1651-3digit", PC, "00 3f 09", "00 3f 08")
 

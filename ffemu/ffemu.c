@@ -265,11 +265,11 @@ void ui_usb_set_fat16(bool fat16)
 }
 
 const char * const fdd_type_name[FDD_TYPE_nr] = {
-    [EMU_FDD_TYPE_step_dir] = "step-dir",
+    [EMU_FDD_TYPE_shugart] = "shugart",
     [EMU_FDD_TYPE_apple2] = "apple2"
 };
 const char * const fdd_type_label[FDD_TYPE_nr] = {
-    [EMU_FDD_TYPE_step_dir] = "Step/Dir",
+    [EMU_FDD_TYPE_shugart] = "Shugart",
     [EMU_FDD_TYPE_apple2] = "Apple2"
 };
 
@@ -278,9 +278,9 @@ void ui_fdd_set_type(int type)
     if (FFEMU_APPLE2)
         type = EMU_FDD_TYPE_apple2;
     else if (!FFEMU_MULTI)
-        type = EMU_FDD_TYPE_step_dir;
+        type = EMU_FDD_TYPE_shugart;
     emu_fdd_type = type;
-    /* As connected to a computer that has just selected the drive; Step/Dir
+    /* As connected to a computer that has just selected the drive; Shugart
      * steps go inward. */
     emu_in_fdd = EMU_FDD_SEL
         | ((type == EMU_FDD_TYPE_apple2) ? 0 : EMU_FDD_DIR);
@@ -465,7 +465,7 @@ static void usage(FILE *f)
 #else
             "/dev/sdb",
 #endif
-            config.path, fdd, fdd_type_name[EMU_FDD_TYPE_step_dir],
+            config.path, fdd, fdd_type_name[EMU_FDD_TYPE_shugart],
             fdd_type_name[EMU_FDD_TYPE_apple2]);
 }
 

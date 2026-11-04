@@ -93,9 +93,9 @@ static const struct setting {
         "wide enough. Key `." },
     [SET_fdd_type] = {
         "fdd-type",
-        "FDD type, the computer on the floppy cable: step-dir (Shugart, PC "
+        "FDD type, the computer on the floppy cable: shugart (Shugart, PC "
         "and the like) or apple2 (stepper phases); the shugart firmware "
-        "takes step-dir only, the apple2 firmware apple2 only. Key 8." },
+        "takes shugart only, the apple2 firmware apple2 only. Key 8." },
     [SET_usb_fat] = {
         "usb-fat",
         "File system of a USB drive made from a directory: fat32, or fat16 "
@@ -660,7 +660,7 @@ void rc_load(void)
     config.display_color = 8 | 6; /* bright cyan */
     config.hold_ms = 150;
     config.fdd_type = (FFEMU_APPLE2 || FFEMU_MULTI) ? EMU_FDD_TYPE_apple2
-        : EMU_FDD_TYPE_step_dir;
+        : EMU_FDD_TYPE_shugart;
     config.usb_fat16 = false;
 
     if ((xdg != NULL) && (xdg[0] != '\0'))

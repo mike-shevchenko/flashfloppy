@@ -561,7 +561,7 @@ extern const char * const fdd_action_name[FDD_ACT_nr];
 void ui_usb_set_fat16(bool fat16);
 /* Whether the firmware's target has action @act. */
 /* Makes the computer on the cable one of FDD type @type, EMU_FDD_TYPE_*, with
- * its signals as at power-on; the shugart firmware takes Step/Dir only, and
+ * its signals as at power-on; the shugart firmware takes Shugart only, and
  * the apple2 firmware Apple2 only. */
 void ui_fdd_set_type(int type);
 /* Whether the FDD type in use has action @act. */

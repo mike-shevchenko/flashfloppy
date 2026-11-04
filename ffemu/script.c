@@ -272,7 +272,7 @@ static void print_fdd(void)
                ui_fdd_phase_text(in, ph),
                ui_fdd_phase_text(ui_fdd_phases(), kept));
     else
-        printf("fdd: step-dir, %s %s %s %s %s\n",
+        printf("fdd: shugart, %s %s %s %s %s\n",
                (in & EMU_FDD_SEL) ? "DS" : "ds",
                (in & EMU_FDD_MOTOR) ? "MO" : "mo",
                (in & EMU_FDD_WRITE) ? "WRG" : "wrg",
@@ -283,7 +283,7 @@ static void print_fdd(void)
         printf("drive: apple2, cyl %u, %senabled, floppy %s\n", cyl,
                sel ? "" : "not ", image ? image : "none");
     else
-        printf("drive: step-dir, cyl %u, side %u, %sselected, floppy %s\n",
+        printf("drive: shugart, cyl %u, side %u, %sselected, floppy %s\n",
                cyl, side, sel ? "" : "not ", image ? image : "none");
 }
 
@@ -505,7 +505,7 @@ static void *script_thread(void *arg_sleep_ms)
             if ((i == FDD_TYPE_nr)
                 || (FFEMU_APPLE2 && (i != EMU_FDD_TYPE_apple2))
                 || (!FFEMU_APPLE2 && !FFEMU_MULTI
-                    && (i != EMU_FDD_TYPE_step_dir))) {
+                    && (i != EMU_FDD_TYPE_shugart))) {
                 fprintf(stderr, "ffemu: no such FDD type here: %s\n", arg);
                 continue;
             }
