@@ -2,11 +2,14 @@
 the character set of inc/charset.h: a folder entered and an image mounted by
 their long names in Cyrillic, and names drawn on the OLED in each font; the
 drive of mk_names_image.py, whose names come in every encoding, as the
-firmware reads them and as ffemu's unpack names its files; and the short
-names of ffemu's drive made from a folder, in each code page."""
+firmware reads them and as ffemu's unpack names its files; the short
+names of ffemu's drive made from a folder, in each code page; and the PNG
+font images and their exact conversion to packed C and back to an image."""
 
 import os
 import re
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -98,6 +101,102 @@ class Names(fr.Case, unittest.TestCase):
                                  [glyph(font, c) for c in want], r.report())
         self.assertEqual(glyph("6x13", 0x20a7), glyph("6x13", 0x25a1))
         self.assertNotEqual(glyph("8x16", 0x20a7), glyph("8x16", 0x25a1))
+
+
+class FontImages(fr.Case, unittest.TestCase):
+    """PNG font images by encoding byte, exact C conversion, and validation."""
+
+    @staticmethod
+    def columns(mk_font, char, width):
+        """The 16-bit columns of a PNG glyph padded to 16 rows."""
+        rows = [(c >> (8 - width)) & ((1 << width) - 1) for c in char]
+        cols = mk_font.cols_of(rows, width)
+        return [cols[x] | cols[width + x] << 8 for x in range(width)]
+
+    def test_unassigned_cell_error(self):
+        """A glyph in an unassigned cell explains where to add a character."""
+        sys.path.insert(0, os.path.join(fr.ROOT, "scripts"))
+        import mk_font
+        original = mk_font.cell_codes
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                def with_glyph():
+                    cells = original()
+                    cells[1] = ord("A")
+                    return cells
+                mk_font.cell_codes = with_glyph
+                committed = os.path.join(fr.ROOT, "fonts", "6x13.png")
+                glyphs, width = mk_font.read_png_font(
+                    committed, mk_font.codes_of(""))
+                png = os.path.join(tmp, "6x13.png")
+                mk_font.write_png(png, glyphs, width, 13, 1)
+            finally:
+                mk_font.cell_codes = original
+            with self.assertRaises(ValueError) as caught:
+                mk_font.read_png_font(png, mk_font.codes_of(""))
+            message = str(caught.exception)
+            self.assertIn("unassigned cell 0x01", message)
+            self.assertIn("cell_codes()", message)
+            self.assertIn("codes_of()", message)
+            self.assertIn("oled_font_index()", message)
+            self.assertIn("src/charset.c", message)
+
+    def test_cell_layout(self):
+        """Every assigned cell has its glyph, 0x7f the square, others blank."""
+        sys.path.insert(0, os.path.join(fr.ROOT, "scripts"))
+        import mk_font
+        for font, size in (("6x13", (6, 13)), ("8x16", (8, 16))):
+            with self.subTest(font=font):
+                png = os.path.join(fr.ROOT, "fonts", font + ".png")
+                cells, width, height = mk_font.read_png_image(png)
+                self.assertEqual((width, height), size)
+                assigned = mk_font.cell_codes()
+                self.assertEqual({code for code in assigned if code is not None},
+                                 set(mk_font.codes_of("")))
+                for cell, code in enumerate(assigned):
+                    if code is None:
+                        self.assertFalse(any(cells[cell]),
+                                         "cell 0x%02x is not blank" % cell)
+                    elif code != 0x20:
+                        self.assertTrue(any(cells[cell]),
+                                        "cell 0x%02x is blank" % cell)
+                self.assertEqual(assigned[0x7f], 0x25a1)
+                self.assertEqual(assigned[0xb2], 0x451)
+                self.assertEqual(assigned[0xb3], 0x401)
+
+    def test_png_round_trip(self):
+        """PNG glyphs match packed C and regenerate an identical image."""
+        sys.path.insert(0, os.path.join(fr.ROOT, "scripts"))
+        import mk_font
+        script = os.path.join(fr.ROOT, "scripts", "mk_font.py")
+        for font, height, tgap in (("6x13", 13, 1), ("8x16", 16, 0)):
+            with self.subTest(font=font), tempfile.TemporaryDirectory() as tmp:
+                committed = os.path.join(fr.ROOT, "fonts", font + ".png")
+                extents = (None, "ascii") if font == "6x13" else (None,)
+                for extent in extents:
+                    outdir = os.path.join(tmp, extent or "full")
+                    os.mkdir(outdir)
+                    command = [sys.executable, script, committed,
+                               "oled_font_" + font]
+                    if extent:
+                        command.append(extent)
+                    subprocess.run(command, cwd=outdir, check=True)
+                    generated_path = os.path.join(
+                        outdir, "oled_font_" + font + ".c")
+                    generated = mk_font.read_font(generated_path)
+                    codes = mk_font.codes_of(extent or "")
+                    glyphs, width = mk_font.read_png_font(committed, codes)
+                    expected = {}
+                    for code in codes:
+                        char = glyphs.get(code, glyphs[mk_font.square])
+                        expected[code] = self.columns(mk_font, char, width)
+                    self.assertEqual(generated, expected, extent)
+                glyphs, width = mk_font.read_png_font(
+                    committed, mk_font.codes_of(""))
+                png = os.path.join(tmp, font + ".png")
+                mk_font.write_png(png, glyphs, width, height, tgap)
+                self.assertEqual(mk_font.read_png_image(png),
+                                 mk_font.read_png_image(committed))
 
 
 # Yolka, Yo in it, which MIK lacks; Lisa, which MIK holds; Kaese with a

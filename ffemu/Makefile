@@ -117,7 +117,7 @@ $(OUT)/gen/ff_cfg_example.c: $(ROOT)/examples/FF.CFG mk_text.py
 	@mkdir -p $(dir $@)
 	$(Q)$(PYTHON) mk_text.py $< $@ ff_cfg_example
 
-$(OUT)/gen/oled_font_%.c: $(ROOT)/fonts/%.bdf $(ROOT)/scripts/mk_font.py
+$(OUT)/gen/oled_font_%.c: $(ROOT)/fonts/%.png $(ROOT)/scripts/mk_font.py
 	@mkdir -p $(dir $@)
 	$(Q)cd $(dir $@) && $(PYTHON) $(ROOT)/scripts/mk_font.py $< oled_font_$*
 
