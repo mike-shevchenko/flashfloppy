@@ -67,11 +67,11 @@ class WriteMarks(fr.Case, unittest.TestCase):
             "key write",
             "wait 3000 segments 01 3f 3f",
             "key phase-in", "key phase-in",
-            "wait 3000 segments 11 3f 06",
+            "wait 3000 segments 11 3f 3f",
             "key phase-in", "key phase-in",
-            "wait 3000 segments 41 3f 5b",
+            "wait 3000 segments 41 3f 06",
             "key write",
-            "wait 3000 segments 40 3f 5b"],
+            "wait 3000 segments 40 3f 06"],
             settings=["display = tm1651-3digit"], files=DSK)
         self.assertWaits(r, 5)
 
