@@ -3636,7 +3636,7 @@ out:
 
 static void noinline banner(void)
 {
-    char msg[2][25];
+    char msg[2][41];
 
     switch (display_type) {
 
@@ -3660,27 +3660,46 @@ static void noinline banner(void)
 #undef sep_ch
         break;
 
-    case DT_LCD_OLED:
+    case DT_LCD_OLED: {
+        const char *mark = "";
+        char mem[8];
+        unsigned int version_width;
+
         lcd_clear();
         display_mode = DM_banner; /* double height row 0 */
-#if MCU == MCU_stm32f105
-        lcd_write(0, 0, 0, "FlashFloppy");
-#elif MCU == MCU_at32f435
-        lcd_write(0, 0, 0, "FlashFloppy+");
-#endif
-        snprintf(msg[0], sizeof(msg[0]), "%s%s", fw_ver,
 #if LEVEL == LEVEL_logfile
-                 apple2_detected ? " A2L" : " Log"
-#elif TARGET == TARGET_quickdisk
-                 " QD"
+#if TARGET == TARGET_apple2
+        mark = "A2L";
 #else
-                 apple2_detected ? " A2" : ""
+        mark = apple2_detected ? "A2L" : "Log";
 #endif
-            );
-        snprintf(msg[1], sizeof(msg[1]), "%9s %dkB", msg[0], ram_kb);
+#elif TARGET == TARGET_quickdisk
+        mark = "QD";
+#elif TARGET == TARGET_apple2
+        mark = "A2";
+#else
+        mark = apple2_detected ? "A2" : "";
+#endif
+#if MCU == MCU_stm32f105
+        snprintf(msg[0], sizeof(msg[0]), "FlashFloppy%*s%s",
+                 lcd_columns - 11 - strlen(mark), "", mark);
+#elif MCU == MCU_at32f435
+        snprintf(msg[0], sizeof(msg[0]), "FlashFloppy+%*s%s",
+                 lcd_columns - 12 - strlen(mark), "", mark);
+#endif
+        lcd_write(0, 0, 0, msg[0]);
+
+        snprintf(msg[0], sizeof(msg[0]), "%s", fw_ver);
+        snprintf(mem, sizeof(mem), " %uK", ram_kb);
+        version_width = lcd_columns - strlen(mem);
+        if (strlen(msg[0]) > version_width)
+            msg[0][version_width] = '\0';
+        snprintf(msg[1], sizeof(msg[1]), "%s%*s%s", msg[0],
+                 lcd_columns - strlen(msg[0]) - strlen(mem), "", mem);
         lcd_write(0, 1, 0, msg[1]);
         lcd_on();
         break;
+    }
 
     }
 }
