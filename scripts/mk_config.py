@@ -20,7 +20,10 @@ def main(argv):
             opt = match.group(1)            
             val = match.group(2)
             if opt == "interface":
-                val = "FINTF_" + val.upper().replace("-","_")
+                if val == "jc":
+                    val = "FINTF_DEFAULT"
+                else:
+                    val = "FINTF_" + val.upper().replace("-","_")
             elif opt == "pin02" or opt == "pin34":
                 val = "PIN_" + val
             elif opt == "track-change":

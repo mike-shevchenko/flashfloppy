@@ -14,10 +14,10 @@ class Detection(fr.Case, unittest.TestCase):
     def check_banner(self, fdd_type, log, banner):
         r = fr.run(
             "ffemu-multi",
-            ["wait 10000 log " + log, "key remove",
-             "wait 5000 segments " + banner],
+            ["wait 10000 log " + log, "wait 10000 log Intf IBM PC",
+             "key remove", "wait 5000 segments " + banner],
             settings=["display = tm1651-3digit", "fdd-type = " + fdd_type])
-        self.assertWaits(r, 2)
+        self.assertWaits(r, 3)
 
     def test_apple2_host(self):
         """A-2 in place of F-F."""
