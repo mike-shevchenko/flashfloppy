@@ -166,17 +166,16 @@ static unsigned int osd_prep_buffer(void)
             memcpy(q, text[i], lcd_columns);
         else
             memset(q, ' ', lcd_columns);
+        osd_map_row(q);
 #if TARGET == TARGET_apple2
-        if (!glyphs_mode) {
-            /* The OLED's phase spinner goes as a blank: FF OSD has no
-             * glyph for it. The font test sends its code as it is. */
-            uint8_t *p;
-            for (p = q; p < q + lcd_columns; p++)
-                if ((*p & ~0xf) == OLED_SPINNER)
-                    *p = ' ';
-        }
-#endif
+        /* The OLED's phase spinner goes as a blank: FF OSD has no glyph
+         * for it. The font test sends its code as it is. */
+        for (i = 0; i < lcd_columns; i++, q++)
+            if (!glyphs_mode && (((uint8_t)*q & ~0xf) == OLED_SPINNER))
+                *q = ' ';
+#else
         q += lcd_columns;
+#endif
     }
 
     if (i2c_addr == 0)
@@ -218,7 +217,7 @@ static unsigned int lcd_prep_buffer(void)
 
     emit8(&q, CMD_SETDDRADDR | row_offs[i2c_row], 0);
     for (i = 0; i < lcd_columns; i++)
-        emit8(&q, p ? *p++ : ' ', _RS);
+        emit8(&q, p ? lcd_char(*p++) : ' ', _RS);
 
     i2c_row++;
 
@@ -514,6 +513,7 @@ bool_t lcd_init(void)
     emit8(&p, CMD_DISPLAYCTL, 0);
     emit8(&p, CMD_ENTRYMODE | 2, 0);
     emit8(&p, CMD_DISPLAYCTL | 4, 0); /* display on */
+    lcd_cgram_block(&p);
     dma_start(p - buffer);
     
     if (!reinit)
@@ -534,16 +534,16 @@ fail:
 }
 
 #ifdef font_extra
-extern const uint8_t oled_font_8x16[];
+extern const struct oled_font oled_font_8x16;
 static void oled_glyph_8x16(uint8_t *q, unsigned int g, unsigned int from,
                             unsigned int to)
 {
-    const uint8_t *p;
+    uint8_t glyph[16];
     const unsigned int w = 8;
 
-    p = &oled_font_8x16[g * w * 2];
-    memcpy(q, p+from, to-from);
-    memcpy(q+128, p+w+from, to-from);
+    oled_font_glyph(&oled_font_8x16, g, glyph);
+    memcpy(q, glyph+from, to-from);
+    memcpy(q+128, glyph+w+from, to-from);
 }
 #endif
 
