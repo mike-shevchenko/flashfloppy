@@ -17,5 +17,5 @@ OBJS += oled_font_8x16.o
 endif
 endif
 
-oled_font_%.c: $(ROOT)/fonts/%.bdf
+oled_font_%.c: $(ROOT)/fonts/%.png $(ROOT)/scripts/mk_font.py
 	$(PYTHON) $(ROOT)/scripts/mk_font.py $< oled_font_$*
