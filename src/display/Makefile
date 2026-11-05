@@ -9,6 +9,12 @@ lcd_$(mcu).o: CFLAGS += -DOLED_FONT_ASCII_ONLY=1
 oled_font_6x16.c: font_extent := ascii
 endif
 
+# The bootloader shows only its own messages: its font holds ASCII alone.
+ifeq ($(target),bootloader)
+lcd_$(mcu).o: CFLAGS += -DOLED_FONT_ASCII_ONLY=1
+oled_font_6x16.c: font_extent := ascii
+endif
+
 ifneq ($(target),bootloader)
 # STM32F105/AT32F415 logfile and debug builds have room for 6x16 alone.
 oled_font_6x16_only ?= $(debug)$(logfile)
@@ -19,4 +25,4 @@ endif
 endif
 
 oled_font_%.c: $(ROOT)/fonts/%.png $(ROOT)/scripts/mk_font.py
-	$(PYTHON) $(ROOT)/scripts/mk_font.py $< oled_font_$*
+	$(PYTHON) $(ROOT)/scripts/mk_font.py $< oled_font_$* $(font_extent)

@@ -197,7 +197,7 @@ static unsigned int osd_prep_buffer(void)
             memcpy(q, text[i], lcd_columns);
         else
             memset(q, ' ', lcd_columns);
-
+        osd_map_row(q);
         q += lcd_columns;
     }
 
@@ -247,7 +247,7 @@ static unsigned int lcd_prep_buffer(void)
 
     emit8(&q, CMD_SETDDRADDR | row_offs[i2c_row], 0);
     for (i = 0; i < lcd_columns; i++)
-        emit8(&q, p ? *p++ : ' ', _RS);
+        emit8(&q, p ? lcd_char(*p++) : ' ', _RS);
 
     i2c_row++;
 
@@ -570,6 +570,7 @@ bool_t lcd_init(void)
     emit8(&p, CMD_DISPLAYCTL, 0);
     emit8(&p, CMD_ENTRYMODE | 2, 0);
     emit8(&p, CMD_DISPLAYCTL | 4, 0); /* display on */
+    lcd_cgram_block(&p);
     i2c->cr2 |= I2C_CR2_DMAEN;
     dma_start(p - buffer);
     
@@ -593,14 +594,16 @@ fail:
 }
 
 #ifdef font_extra
-extern const uint8_t oled_font_8x16[];
+extern const struct oled_font oled_font_8x16;
 static void oled_glyph_8x16(uint8_t *q, unsigned int g, unsigned int from,
                             unsigned int to)
 {
-    const uint8_t *p = &oled_font_8x16[g * 8 * 2];
+    uint8_t glyph[16], *p = glyph;
+    const unsigned int w = 8;
 
+    oled_font_glyph(&oled_font_8x16, g, glyph);
     memcpy(q, p+from, to-from);
-    memcpy(q+128, p+8+from, to-from);
+    memcpy(q+128, p+w+from, to-from);
 }
 #endif
 
