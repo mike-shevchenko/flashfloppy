@@ -67,7 +67,7 @@ To install the bootloader, unplug the host, put `alt/apple2/at2-bootloader/flash
 
 NOTE: A power cut while the bootloader is being replaced leaves the board to be programmed over USB or a serial cable ([Firmware Programming](https://github.com/keirf/flashfloppy/wiki/Firmware-Programming)), from the `.dfu` or `.hex` in the same folder. The Apple2 bootloader serves a Shugart host as well; it only stops reading the KC30 header's Select pin.
 
-In order to make such Gotek work with IBM PC, either the JC jumper must be installed (ATTENTION: the JC jumper may damage the Apple2/Agat), or the setting `interface = ibmpc` must be written to the flash memory: put `FF.CFG` with this line on a USB drive and power on the Gotek, then you can remove this file. Note that TR-DOS will work fine with or without JC and with or without this setting. Note that any `FF.CFG` that sets `interface =` will write the specified value back into flash, and the Factory Reset will also delete the setting.
+The multi firmware's factory default is `interface = ibmpc`, so Beta Disk, IBM PC and Apple2 hosts work without JC or any other re-jumpering. Any `FF.CFG` that sets `interface =` will write the specified value back into flash, and Factory Reset will restore the IBM PC default. For other firmware, either the JC jumper must be installed (ATTENTION: the JC jumper may damage the Apple2/Agat), or `interface = ibmpc` must be written to flash: put `FF.CFG` with this line on a USB drive and power on the Gotek, then you can remove this file. Note that TR-DOS will work fine with or without JC and with or without this setting.
 
 ### Prepare Gotek model SFRKC30.AT4.35 (MCU 435)
 

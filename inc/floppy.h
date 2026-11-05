@@ -60,6 +60,13 @@ extern uint8_t apple2_phases;
 #define FINTF_AMIGA       4
 #define FINTF_JPPC        5
 
+/* Factory default: Beta Disk and IBM PC hosts need no JC in multi. */
+#if TARGET == TARGET_multi
+#define FINTF_DEFAULT FINTF_IBMPC
+#else
+#define FINTF_DEFAULT FINTF_JC
+#endif
+
 #define outp_dskchg 0
 #define outp_index  1
 #define outp_trk0   2

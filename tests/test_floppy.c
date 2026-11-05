@@ -46,6 +46,24 @@ static const uint8_t seek_states[8] = { 1, 3, 2, 6, 4, 12, 8, 9 };
 
 #endif
 
+TEST(floppy_default_interface)
+{
+    drive_reset();
+    board_reset();
+    floppy_set_fintf_mode();
+#if TARGET == TARGET_multi
+    CHECK(ff_cfg.interface == FINTF_IBMPC);
+    CHECK(log_has("Intf IBM PC"));
+    /* An explicit JC setting still follows the strap. */
+    ff_cfg.interface = FINTF_JC;
+    floppy_set_fintf_mode();
+    CHECK(log_has("Intf Shugart"));
+#else
+    CHECK(ff_cfg.interface == FINTF_JC);
+    CHECK(log_has("Intf Shugart"));
+#endif
+}
+
 #if TARGET == TARGET_multi /* detection at boot */
 
 TEST(floppy_detect_apple2_at_rest)
