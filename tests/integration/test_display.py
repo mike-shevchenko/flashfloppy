@@ -1,7 +1,7 @@
 """The LCD's and the OLED's rows as the firmware lays them out: the status
 row's track, in the long form or in short with show-tracks-short, with Apple2
-phases; display-order's row 4, the image's name and its track in short; rows
-of double width; and the folders' names,
+phases; display-order's row 4, the image's
+name and its track in short; rows of double width; and the folders' names,
 which row 3 scrolls and the image selector shows in brackets or after a slash;
 a long name's scrolling by pixel; the Main Menu's font test; and the error
 screen in its own layout.
@@ -55,16 +55,14 @@ FONT_W = {"6x13": 6, "8x16": 8}
 
 
 def oled_glyphs(font):
-    """The firmware's glyphs of @font for ASCII, with which the fonts that the
-    build generated from fonts/ begin, by their columns' bytes, the top
-    page's and then the bottom page's, bit 0 a column's top pixel."""
-    path = os.path.join(
-        fr.OUT, "ffemu", "shugart", "gen", "oled_font_%s.c" % font)
-    with open(path) as f:
-        data = bytes(
-            int(x, 16) for x in re.findall(r"0x([0-9a-f]{2})", f.read()))
-    n = 2 * FONT_W[font]
-    return {data[i*n:(i+1)*n]: chr(0x20 + i) for i in range(0x7f - 0x20)}
+    """The firmware's glyphs of @font for ASCII by their columns' bytes, the
+    top page's and then the bottom page's, bit 0 a column's top pixel, from
+    the generated font as the harness decodes it."""
+    w = FONT_W[font]
+    glyphs = fr.font_glyphs(font)
+    return {bytes([c & 0xff for c in glyphs[code]]
+                  + [c >> 8 for c in glyphs[code]]): chr(code)
+            for code in range(0x20, 0x7f)}
 
 
 def oled_text(pixels, top, font, wide, tall=True):
@@ -96,7 +94,9 @@ class Case(fr.Case):
         r = fr.run(
             name, ["wait 10000 log Name:"] + list(commands)
             + ["sleep 500", "dump", "osd"],
-            settings=["display = " + display], flash=flash, files=files)
+            settings=["display = " + display]
+            + ["lcd-rom = cyr"] * display.startswith("hd44780"),
+            flash=flash, files=files)
         self.assertWaits(r, 1)
         lcd = display.startswith("hd44780")
         out = r.stdout.split("\nosd: ")

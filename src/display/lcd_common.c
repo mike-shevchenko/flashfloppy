@@ -146,6 +146,44 @@ static void emit8(uint8_t **p, uint8_t val, uint8_t signals)
     emit4(p, (val << 4) | signals);
 }
 
+/* The targets that show only their own messages, in ASCII, give them as
+ * they are. */
+#if (TARGET == TARGET_bootloader) || (TARGET == TARGET_bl_update) \
+    || (TARGET == TARGET_io_test)
+#define lcd_char(c) (c)
+#define osd_map_row(q) ((void)0)
+#define lcd_cgram_block(p) ((void)0)
+#else
+/* Character @c of the text as the LCD's ROM shows it, but in the font test,
+ * which shows the ROM's glyph of each code. */
+#define lcd_char(c) (glyphs_mode ? (uint8_t)(c) \
+    : charset_to_rom((uint8_t)(c), ff_cfg.lcd_charset))
+
+/* Text row @q, lcd_columns long, in place as FF OSD's font shows it. */
+static void osd_map_row(uint8_t *q)
+{
+    unsigned int i;
+
+    if (glyphs_mode)
+        return;
+    for (i = 0; i < lcd_columns; i++)
+        q[i] = charset_to_rom(q[i], CHARSET_osd);
+}
+
+/* A02 has no full block, which charset_to_rom() gives a character that the
+ * ROM cannot show: CGRAM character 0 is one, written by its mirror 0x08. */
+static void lcd_cgram_block(uint8_t **p)
+{
+    unsigned int i;
+
+    if (ff_cfg.lcd_charset != LCDCS_eur)
+        return;
+    emit8(p, CMD_SETCGRADDR, 0);
+    for (i = 0; i < 8; i++)
+        emit8(p, 0x1f, _RS);
+}
+#endif
+
 /* Write a 4-bit nibble over D7-D4 (4-bit bus). */
 static void write4(uint8_t val)
 {
@@ -250,6 +288,50 @@ void lcd_sync(void)
         cpu_relax();
 }
 
+/* The glyph of character @c of the set of charset.h in the OLED fonts,
+ * which hold ASCII's 95, the 63 Latin letters and pound at 0x80-0xbf, and the
+ * Russian letters in the set's order, then a hollow square, the glyph of every
+ * code without one. */
+static unsigned int oled_font_index(unsigned int c)
+{
+    if ((c >= 0x20) && (c <= 0x7e))
+        return c - 0x20;
+#ifdef OLED_FONT_ASCII_ONLY
+    return 95;
+#else
+    if ((c >= 0x80) && (c <= 0xbf))
+        return c - 0x80 + 95;
+    if (c >= 0xc0)
+        return c - 0xc0 + 95 + 64;
+    return 95 + 64 + 64;
+#endif
+}
+
+extern const struct oled_font oled_font_6x13;
+
+/* The columns of glyph @g of font @f into @cols, twice the font's width:
+ * the top page's, then the bottom page's, bit 0 a column's top pixel. */
+static void oled_font_glyph(const struct oled_font *f, unsigned int g,
+                            uint8_t *cols)
+{
+    const uint8_t *p = f->data + f->off[g];
+    unsigned int w = f->w, top = *p >> 4, nr = (*p++ & 15) + 1;
+    unsigned int x, y, row, bits = 0, nbits = 0;
+
+    memset(cols, 0, 2*w);
+    for (y = top; y < top + nr; y++) {
+        while (nbits < w) {
+            bits = (bits << 8) | *p++;
+            nbits += 8;
+        }
+        nbits -= w;
+        row = (bits >> nbits) & ((1u << w) - 1);
+        for (x = 0; x < w; x++)
+            if (row & (1u << (w - 1 - x)))
+                cols[x + (y >> 3) * w] |= 1u << (y & 7);
+    }
+}
+
 #if TARGET_SUPPORTS_APPLE2
 #include "oled_spinner.c"
 
@@ -270,27 +352,23 @@ static void oled_draw_spinners(const char *pc, unsigned int half,
 }
 #endif
 
-extern const uint8_t oled_font_6x13[];
-
 /* Writes pixel columns @from to @to - 1 of the glyph of @c to buffer[] at @q,
  * its top and bottom pages. */
 static void oled_glyph(uint8_t *q, char c, unsigned int from,
                        unsigned int to)
 {
-    unsigned int g = (uint8_t)c - 0x20;
-    const uint8_t *p;
+    unsigned int g = oled_font_index((uint8_t)c);
+    uint8_t glyph[12];
 
-    if (g > 0x5e)
-        g = '.' - 0x20;
 #ifdef font_extra
     if (oled_font == FONT_8x16) {
         oled_glyph_8x16(q, g, from, to);
         return;
     }
 #endif
-    p = &oled_font_6x13[g * 6 * 2];
-    memcpy(q, p+from, to-from);
-    memcpy(q+128, p+6+from, to-from);
+    oled_font_glyph(&oled_font_6x13, g, glyph);
+    memcpy(q, glyph+from, to-from);
+    memcpy(q+128, glyph+6+from, to-from);
 }
 
 /* Renders text row @pc into buffer[], its columns shifted as @s says in the
@@ -430,7 +508,7 @@ static void oled_to_lcd_row(int in_row)
     pc = (row >= ARRAY_SIZE(text)) ? NULL : wide ? text_wide[row] : text[row];
     if (pc != NULL) {
         oled_convert_text_row(pc, &oled_shift[!!wide][row]);
-#if TARGET_SUPPORTS_APPLE2
+#if TARGET == TARGET_apple2
         if (wide && !glyphs_mode)
             oled_draw_spinners(pc, 0, TRUE, TRUE);
 #endif
