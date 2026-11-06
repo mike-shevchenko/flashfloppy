@@ -179,6 +179,12 @@ extern bool_t is_oled_display;
  * 0 to 3. A width of zero removes it. The text cells hold ordinary spaces. */
 void lcd_write_spinner(int row, unsigned int col, unsigned int width,
                        unsigned int phases);
+/* Whether the Apple2 phase indicator uses a spinner rather than a hex digit. */
+#ifdef LEAN_UI
+#define OLED_SPINNER_ENABLED FALSE
+#else
+#define OLED_SPINNER_ENABLED TRUE
+#endif
 
 /* FF OSD (On Screen Display) */
 extern bool_t has_osd;
