@@ -3537,6 +3537,7 @@ static void ff_osd_configure(void)
     }
 }
 
+#ifndef LEAN_UI
 /* Shows every code of the display with its glyph, 16 to a text row and
  * their codes on the row below, a page of one or two such pairs at a time:
  * Left and Right page through the codes, Select goes back. */
@@ -3583,6 +3584,7 @@ static void font_test(void)
     lcd_clear();
     display_mode = DM_menu;
 }
+#endif
 
 static void main_menu(void)
 {
@@ -3592,7 +3594,9 @@ static void main_menu(void)
         "Update Firmware",
         "Configure FF OSD",
         "Save FLASH.DMP",
+#ifndef LEAN_UI
         "Font Test",
+#endif
         "Exit",
     };
 
@@ -3655,10 +3659,12 @@ static void main_menu(void)
                 lcd_write(0, 1, -1, "Insert USB drive");
                 delay_ms(1500);
                 goto out;
+#ifndef LEAN_UI
             case 5: /* Font Test */
                 font_test();
                 break;
-            case 6: /* Exit */
+#endif
+            case ARRAY_SIZE(menu) - 1: /* Exit */
                 goto out;
             }
         }
