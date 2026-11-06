@@ -356,6 +356,7 @@ void floppy_insert(unsigned int unit, struct slot *slot);
 void floppy_cancel(void);
 bool_t floppy_handle(void); /* TRUE -> re-read config file */
 void floppy_set_cyl(uint8_t unit, uint8_t cyl);
+bool_t floppy_write_active(void);
 struct track_info {
     uint8_t cyl, side:1, sel:1, writing:1, in_da_mode:1, phases:4;
 };

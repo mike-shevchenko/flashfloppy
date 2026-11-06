@@ -397,9 +397,7 @@ static void run_until(time_t t)
 
 static bool_t writing(void)
 {
-    struct track_info ti;
-    floppy_get_track(&ti);
-    return ti.writing;
+    return floppy_write_active();
 }
 
 /* The WDATA ring that the floppy code gave DMA1's channel 2. Its address
