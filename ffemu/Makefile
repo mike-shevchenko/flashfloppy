@@ -71,6 +71,12 @@ FW_CFLAGS += -MMD -MP
 # Extra debug flags just for ffemu
 FW_CFLAGS += -ftrivial-auto-var-init=pattern
 
+# The lean test variant uses ASCII fonts and leaves the extras out.
+ifeq ($(lean_ui),y)
+FW_CFLAGS += -DLEAN_UI=1 -DOLED_FONT_ASCII_ONLY=1
+$(OUT)/gen/oled_font_6x13.c $(OUT)/gen/oled_font_8x16.c: font_extent := ascii
+endif
+
 # The firmware's own code calls __sanitizer_cov_trace_pc() at each of its
 # basic blocks, by which the virtual clock tells a spin from its work.
 $(patsubst %.c,$(OUT)/fw/%.o,$(FW_SRCS)): \
@@ -129,7 +135,7 @@ $(OUT)/gen/ff_cfg_example.c: $(ROOT)/examples/FF.CFG mk_text.py
 
 $(OUT)/gen/oled_font_%.c: $(ROOT)/fonts/%.png $(ROOT)/scripts/mk_font.py
 	@mkdir -p $(dir $@)
-	$(Q)cd $(dir $@) && $(PYTHON) $(ROOT)/scripts/mk_font.py $< oled_font_$*
+	$(Q)cd $(dir $@) && $(PYTHON) $(ROOT)/scripts/mk_font.py $< oled_font_$* $(font_extent)
 
 $(OUT)/gen/%.o: $(OUT)/gen/%.c
 	@echo CC $*.c

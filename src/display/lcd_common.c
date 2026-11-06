@@ -259,6 +259,10 @@ unsigned int lcd_shown_rows(void)
 void lcd_write_shifted(int col, int row, int nr, unsigned int px,
                        const char *str)
 {
+#ifdef LEAN_UI
+    /* No scrolling by pixel. */
+    lcd_write(col, row, -1, str);
+#else
     struct oled_shift *s = &oled_shift[!!(row & LCD_WIDE)][row & ~LCD_WIDE];
     uint32_t oldpri = IRQ_save(I2C_IRQ_PRI);
 
@@ -268,6 +272,7 @@ void lcd_write_shifted(int col, int row, int nr, unsigned int px,
     s->next = px ? str[nr] : ' ';
     lcd_write(col, row, -1, str);
     IRQ_restore(oldpri);
+#endif
 }
 
 unsigned int lcd_column_pixels(void)
@@ -332,7 +337,7 @@ static void oled_font_glyph(const struct oled_font *f, unsigned int g,
     }
 }
 
-#if TARGET_SUPPORTS_APPLE2
+#if !defined(LEAN_UI) && TARGET_SUPPORTS_APPLE2
 #include "oled_spinner.c"
 
 /* Draws the phase spinners of text row @pc over its rendering in buffer[],
@@ -375,8 +380,12 @@ static void oled_glyph(uint8_t *q, char c, unsigned int from,
  * normal display mode. */
 static void oled_convert_text_row(const char *pc, const struct oled_shift *s)
 {
+#ifdef LEAN_UI
+    unsigned int i, w = lcd_column_pixels();
+#else
     unsigned int i, from, w = lcd_column_pixels();
     unsigned int px = ((display_mode == DM_normal) || error_mode) ? s->px : 0;
+#endif
     uint8_t *q = buffer;
 
     if (w == 6) {
@@ -384,6 +393,10 @@ static void oled_convert_text_row(const char *pc, const struct oled_shift *s)
         q++;
     }
 
+#ifdef LEAN_UI
+    for (i = 0; i < lcd_columns; i++, q += w)
+        oled_glyph(q, pc[i], 0, w);
+#else
     for (i = 0; i <= lcd_columns; i++) {
         if (i == s->col + s->nr) {
             oled_glyph(q, s->next, 0, px);
@@ -395,6 +408,7 @@ static void oled_convert_text_row(const char *pc, const struct oled_shift *s)
         oled_glyph(q, pc[i], from, w);
         q += w - from;
     }
+#endif
 
     /* Fill remainder of buffer[] with zeroes. */
     memset(q, 0, buffer+128-q);
@@ -468,6 +482,10 @@ unsigned int lcd_row_columns(unsigned int row)
 {
     /* As oled_to_lcd_row() takes display_order on the normal screen, and on
      * an error screen its double rows by display-error-wide. */
+#ifdef LEAN_UI
+    /* Only double height in lean builds. */
+    return lcd_columns;
+#else
     if (!is_oled_display)
         return lcd_columns;
     if ((display_mode == DM_normal)
@@ -476,6 +494,7 @@ unsigned int lcd_row_columns(unsigned int row)
            && ((oled_height == 64) || (display_mode == DM_error))))
         return lcd_columns / 2;
     return lcd_columns;
+#endif
 }
 
 /* Renders the 16 pixel rows @in_row of the display into buffer[], its top and
@@ -504,11 +523,15 @@ static void oled_to_lcd_row(int in_row)
 
     /* Remap the row */
     row = order & DORD_row;
+#ifdef LEAN_UI
+    wide = FALSE;
+#else
     wide = large && (lcd_row_columns(row) < lcd_columns);
+#endif
     pc = (row >= ARRAY_SIZE(text)) ? NULL : wide ? text_wide[row] : text[row];
     if (pc != NULL) {
         oled_convert_text_row(pc, &oled_shift[!!wide][row]);
-#if TARGET == TARGET_apple2
+#if !defined(LEAN_UI) && TARGET_SUPPORTS_APPLE2
         if (wide && !glyphs_mode)
             oled_draw_spinners(pc, 0, TRUE, TRUE);
 #endif
@@ -522,7 +545,7 @@ static void oled_to_lcd_row(int in_row)
     if (large)
         oled_double_height(buffer, &buffer[(half == 1) ? 128 : 0], 0x3);
 
-#if TARGET_SUPPORTS_APPLE2
+#if !defined(LEAN_UI) && TARGET_SUPPORTS_APPLE2
     if ((pc != NULL) && !glyphs_mode)
         oled_draw_spinners(pc, half, wide, FALSE);
 #endif

@@ -19,9 +19,13 @@ Written with the help of Claude.
 
     make -C ffemu [O=<path>] [TARGET=shugart|apple2|multi]
 
-The plain `make` at the top of the tree builds the three programs as well,
-along with the firmware and with the same `O=`, so that a firmware change that
-breaks ffemu fails the regular build.
+The plain `make` at the top of the tree builds the regular programs and the
+lean test variant as well, along with the firmware and with the same `O=`, so
+that a firmware change that breaks ffemu fails the regular build.
+
+The lean test variant is `out/ffemu/lean-ui/ffemu-lean-ui`: the multi firmware
+with `LEAN_UI=1` and ASCII-only fonts, meant for testing the lean build and not
+included in release packs. Its settings and logs go in `ffemu-lean-ui/`.
 
 The program is `out/ffemu/shugart/ffemu-shugart` under `<path>`, which defaults
 to the top of the source tree. It runs the shugart firmware, which serves a

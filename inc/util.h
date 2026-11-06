@@ -178,6 +178,12 @@ extern bool_t is_oled_display;
  * is the OLED's Apple2 phase spinner, over it and the next cell: a control
  * code, so that no text shown, an image's name included, can hold it. */
 #define OLED_SPINNER 0x10
+/* Whether the Apple2 phase indicator uses a spinner rather than a hex digit. */
+#ifdef LEAN_UI
+#define OLED_SPINNER_ENABLED FALSE
+#else
+#define OLED_SPINNER_ENABLED TRUE
+#endif
 
 /* FF OSD (On Screen Display) */
 extern bool_t has_osd;
