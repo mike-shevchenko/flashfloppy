@@ -482,6 +482,10 @@ unsigned int lcd_row_columns(unsigned int row)
 {
     /* As oled_to_lcd_row() takes display_order on the normal screen, and on
      * an error screen its double rows by display-error-wide. */
+#ifdef LEAN_UI
+    /* Only double height in lean builds. */
+    return lcd_columns;
+#else
     if (!is_oled_display)
         return lcd_columns;
     if ((display_mode == DM_normal)
@@ -490,6 +494,7 @@ unsigned int lcd_row_columns(unsigned int row)
            && ((oled_height == 64) || (display_mode == DM_error))))
         return lcd_columns / 2;
     return lcd_columns;
+#endif
 }
 
 /* Renders the 16 pixel rows @in_row of the display into buffer[], its top and
@@ -518,7 +523,11 @@ static void oled_to_lcd_row(int in_row)
 
     /* Remap the row */
     row = order & DORD_row;
+#ifdef LEAN_UI
+    wide = FALSE;
+#else
     wide = large && (lcd_row_columns(row) < lcd_columns);
+#endif
     pc = (row >= ARRAY_SIZE(text)) ? NULL : wide ? text_wide[row] : text[row];
     if (pc != NULL) {
         oled_convert_text_row(pc, &oled_shift[!!wide][row]);
