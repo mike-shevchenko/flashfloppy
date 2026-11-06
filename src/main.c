@@ -239,7 +239,9 @@ static const uint8_t scroll_rows[] = { 0, 4, 3, 1 };
 /* The error's message while one is shown, the image's name after it where
  * the error screen has a row for both, else "". */
 static char err_msg[17 + 2 + sizeof(disp_name)];
+#ifndef LEAN_UI
 static const unsigned int scroll_gap = 4;
+#endif
 struct scroll {
     uint16_t off, end;
     int32_t ticks;
@@ -299,6 +301,19 @@ static const char *scroll_text(unsigned int p)
         : (scroll_rows[p] == 3) ? disp_dir : disp_name;
 }
 
+#ifdef LEAN_UI
+/* No scrolling: each text is written once, cut at its row's end, and its
+ * scrolling ends at 0, so that the callers' timing takes none. */
+static void scroll_init(unsigned int i)
+{
+    memset(&lcd_scroll.v[i], 0, sizeof(lcd_scroll.v[i]));
+}
+
+static void scroll_draw(unsigned int i)
+{
+    scroll_write(scroll_rows[i / 2], i & 1, scroll_text(i / 2), 0);
+}
+#else
 /* Sets where scrolling @i ends, by the columns that its row's layout has
  * for its text. */
 static void scroll_init(unsigned int i)
@@ -341,6 +356,7 @@ static void scroll_draw(unsigned int i)
                  scroll_gap - (sc->off - sc->end), "", s);
     scroll_write(row, i & 1, msg, sc->px);
 }
+#endif
 
 /* Takes the name's scrolling back to its start: rows 0 and 4's. */
 static void lcd_scroll_reset(void)
@@ -380,6 +396,7 @@ static unsigned int lcd_scroll_end(void)
  * column. */
 static void lcd_scroll_name(int32_t ticks)
 {
+#ifndef LEAN_UI
     static struct track_info ti;
     struct scroll *sc;
     bool_t track_read = FALSE;
@@ -423,6 +440,7 @@ static void lcd_scroll_name(int32_t ticks)
         }
         scroll_draw(i);
     }
+#endif
 }
 
 /* No track in row 4 while no image is in: the row is the name's. */
