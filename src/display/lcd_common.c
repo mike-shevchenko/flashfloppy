@@ -362,7 +362,7 @@ static void oled_font_glyph(const struct oled_font *f, unsigned int g,
     }
 }
 
-#if TARGET == TARGET_apple2
+#if !defined(LEAN_UI) && (TARGET == TARGET_apple2)
 #include "oled_spinner.c"
 
 /* Draw content @row's phase spinner over its rendering in buffer[], which
@@ -558,7 +558,7 @@ static void oled_to_lcd_row(int in_row)
     pc = (row >= ARRAY_SIZE(text)) ? NULL : wide ? text_wide[row] : text[row];
     if (pc != NULL) {
         oled_convert_text_row(pc, &oled_shift[!!wide][row]);
-#if TARGET == TARGET_apple2
+#if !defined(LEAN_UI) && (TARGET == TARGET_apple2)
         if (wide)
             oled_draw_spinner(row, 0, TRUE, TRUE);
 #endif
@@ -572,7 +572,7 @@ static void oled_to_lcd_row(int in_row)
     if (large)
         oled_double_height(buffer, &buffer[(half == 1) ? 128 : 0], 0x3);
 
-#if TARGET == TARGET_apple2
+#if !defined(LEAN_UI) && (TARGET == TARGET_apple2)
     if (pc != NULL)
         oled_draw_spinner(row, half, wide, FALSE);
 #endif

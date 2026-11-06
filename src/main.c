@@ -541,7 +541,8 @@ static char *track_indicator(char *s, const struct track_info *ti,
                              unsigned int *width)
 {
     *width = 0;
-    if ((TARGET == TARGET_apple2) && spinner && is_oled_display) {
+    if ((TARGET == TARGET_apple2) && spinner && is_oled_display
+        && OLED_SPINNER_ENABLED) {
         *width = spinner;
         while (spinner--)
             *s++ = ' ';
