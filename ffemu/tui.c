@@ -1175,7 +1175,7 @@ static void draw_status(int y, int x, int w)
      * USB drive below. */
     emu_fdd_status(&apple2, &cyl, &side, &sel, &image);
     put(y, x, w, green, "%s", fdd_type_label[apple2 ? EMU_FDD_TYPE_apple2
-                                             : EMU_FDD_TYPE_step_dir]);
+                                             : EMU_FDD_TYPE_shugart]);
     c = piece(y, x + 10, x + w, gray, "Cyl ");
     c = piece(y, c, x + w, green, "%u", cyl);
     if (!apple2) {
@@ -2536,7 +2536,7 @@ static const char *drive_caption(bool *enabled)
 static void draw_externals_dialog(void)
 {
     static const char * const what[FDD_TYPE_nr] = {
-        [EMU_FDD_TYPE_step_dir] = "Shugart (Beta Disk), IBM PC and the like",
+        [EMU_FDD_TYPE_shugart] = "Shugart (Beta Disk), IBM PC and the like",
         [EMU_FDD_TYPE_apple2] = "Apple Disk II, Pravetz/Agat (Izot) 140K"
     };
     static const char * const fat_label[2] = {
@@ -3426,6 +3426,7 @@ static const char * const fd_places[] = {
     "display-on-activity", "",
     "image-on-startup", "",
     "ejected-on-startup", "",
+    "write-protect", "",
     "nav-mode", "",
     "indexed-prefix", "",
     "osd-display-order", "osd-columns", "",
@@ -3434,7 +3435,6 @@ static const char * const fd_places[] = {
     "host", "|",
     "pin02", "",
     "pin34", "",
-    "write-protect", "",
     "max-cyl", "",
     "side-select-glitch-filter", "|",
     "track-change", "",
@@ -4691,12 +4691,12 @@ static void check_fdd_type(void)
     if (!apple2 == (emu_fdd_type != EMU_FDD_TYPE_apple2))
         return;
     show_message((dialog == DLG_message) ? msg_return : dialog, "FDD type",
-                 apple2 ? "The FDD type is Step/Dir, but at power-on the "
+                 apple2 ? "The FDD type is Shugart, but at power-on the "
                  "firmware took the host for an Apple2 and serves it in "
                  "Apple2 mode. Power-cycle with Home, the host's signals at "
                  "rest"
                  : "The FDD type is Apple2, but at power-on the firmware took "
-                 "the host for a Step/Dir one and serves it in Shugart mode: "
+                 "the host for a Shugart one and serves it in Shugart mode: "
                  "the stepper phases left on, as 3 and 0 after a step, held "
                  "too few of its inputs low. Release them with \\ and "
                  "power-cycle with Home");

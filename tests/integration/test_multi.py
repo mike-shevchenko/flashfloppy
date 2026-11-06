@@ -23,8 +23,8 @@ class Detection(fr.Case, unittest.TestCase):
         """A-2 in place of F-F."""
         self.check_banner("apple2", "Apple2 on", "77 40 5b")
 
-    def test_step_dir_host(self):
-        self.check_banner("step-dir", "Apple2 off", "71 40 71")
+    def test_shugart_host(self):
+        self.check_banner("shugart", "Apple2 off", "71 40 71")
 
 
 class Apple2Mode(fr.Case, unittest.TestCase):
