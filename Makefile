@@ -53,10 +53,14 @@ apple2-bootloader-%: FORCE
 
 all-%: FORCE prod-% debug-% logfile-% ;
 
+ffemu-lean-ui: FORCE
+	$(MAKE) -C $(ROOT)/ffemu O=$(O) TARGET=apple2 lean_ui=y \
+	    NAME=ffemu-lean-ui OUT=$(abspath $(O))/out/ffemu/lean-ui
+
 ffemu-%: FORCE
 	$(MAKE) -C $(ROOT)/ffemu O=$(O) TARGET=$*
 
-ffemu: FORCE ffemu-shugart ffemu-apple2
+ffemu: FORCE ffemu-shugart ffemu-apple2 ffemu-lean-ui
 
 unit-tests: FORCE
 	$(MAKE) -C $(ROOT)/tests O=$(O) all
