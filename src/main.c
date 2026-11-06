@@ -536,7 +536,7 @@ static struct track_info lcd_ti;
 static char *track_indicator(char *s, const struct track_info *ti,
                              unsigned int spinner, char lead)
 {
-    if (apple2_mode && spinner && is_oled_display) {
+    if (apple2_mode && spinner && is_oled_display && OLED_SPINNER_ENABLED) {
         *s++ = OLED_SPINNER | ti->phases;
         if (spinner == 2)
             *s++ = ' ';
