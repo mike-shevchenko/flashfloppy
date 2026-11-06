@@ -293,6 +293,7 @@ void lcd_sync(void)
         cpu_relax();
 }
 
+<<<<<<< HEAD
 /* The glyph of character @c of the set of charset.h in the OLED fonts,
  * which hold ASCII's 95, the 63 Latin letters and pound at 0x80-0xbf, and the
  * Russian letters in the set's order, then a hollow square, the glyph of every
@@ -337,7 +338,7 @@ static void oled_font_glyph(const struct oled_font *f, unsigned int g,
     }
 }
 
-#if TARGET == TARGET_apple2
+#if !defined(LEAN_UI) && (TARGET == TARGET_apple2)
 #include "oled_spinner.c"
 
 /* Draws the phase spinners of text row @pc over its rendering in buffer[],
@@ -531,7 +532,7 @@ static void oled_to_lcd_row(int in_row)
     pc = (row >= ARRAY_SIZE(text)) ? NULL : wide ? text_wide[row] : text[row];
     if (pc != NULL) {
         oled_convert_text_row(pc, &oled_shift[!!wide][row]);
-#if TARGET == TARGET_apple2
+#if !defined(LEAN_UI) && (TARGET == TARGET_apple2)
         if (wide && !glyphs_mode)
             oled_draw_spinners(pc, 0, TRUE, TRUE);
 #endif
@@ -545,7 +546,7 @@ static void oled_to_lcd_row(int in_row)
     if (large)
         oled_double_height(buffer, &buffer[(half == 1) ? 128 : 0], 0x3);
 
-#if TARGET == TARGET_apple2
+#if !defined(LEAN_UI) && (TARGET == TARGET_apple2)
     if ((pc != NULL) && !glyphs_mode)
         oled_draw_spinners(pc, half, wide, FALSE);
 #endif
