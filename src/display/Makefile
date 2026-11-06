@@ -9,6 +9,12 @@ lcd_$(mcu).o: CFLAGS += -DOLED_FONT_ASCII_ONLY=1
 oled_font_6x13.c: font_extent := ascii
 endif
 
+# A lean image shows the fallback glyph for names outside ASCII.
+ifeq ($(lean_ui),y)
+lcd_$(mcu).o: CFLAGS += -DOLED_FONT_ASCII_ONLY=1
+oled_font_6x13.c: font_extent := ascii
+endif
+
 ifneq ($(target),bootloader)
 lcd_$(mcu).o: CFLAGS += -Dfont_extra=1
 # To save the flash size for the logfile and debug builds for
