@@ -3,6 +3,12 @@ OBJS += lcd_$(mcu).o
 OBJS += oled_font_6x13.o
 OBJS += led_7seg.o
 
+# A minimal image shows the fallback glyph for names outside ASCII.
+ifeq ($(minimal_ui),y)
+lcd_$(mcu).o: CFLAGS += -DOLED_FONT_ASCII_ONLY=1
+oled_font_6x13.c: font_extent := ascii
+endif
+
 ifneq ($(target),bootloader)
 lcd_$(mcu).o: CFLAGS += -Dfont_extra=1
 # To save the flash size for the logfile and debug builds for
