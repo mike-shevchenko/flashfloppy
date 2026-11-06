@@ -293,7 +293,6 @@ void lcd_sync(void)
         cpu_relax();
 }
 
-<<<<<<< HEAD
 /* The glyph of character @c of the set of charset.h in the OLED fonts,
  * which hold ASCII's 95, the 63 Latin letters and pound at 0x80-0xbf, and the
  * Russian letters in the set's order, then a hollow square, the glyph of every
