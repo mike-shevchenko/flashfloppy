@@ -96,9 +96,9 @@ class Names(fr.Case, unittest.TestCase):
                                  r.report())
 
     def test_oled_437(self):
-        """Kaese, L stroke and sharp S; removed peseta and pound as '?'."""
+        """Kaese, L stroke, sharp S and pound; removed peseta as '?'."""
         want = [ord("K"), 0xe4, ord("s"), ord("e"), ord("?"), 0x141,
-                ord("?"), 0xdf]
+                0x00a3, 0xdf]
         for font, opts in FONTS.items():
             with self.subTest(font=font):
                 r = fr.run("ffemu", MOUNT, files={

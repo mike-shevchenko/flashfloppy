@@ -4,7 +4,7 @@
  * The character set of every name that the firmware holds, a byte for each
  * character: ASCII; the generic currency sign at 0x01; Central European
  * letters at 0x02-0x1f; the Latin letters of code pages 437 and 850 at
- * 0x80-0xbf, except unassigned 0x9f; and the Russian alphabet in KOI8-R's
+ * 0x80-0xbf, with the pound at 0x9f; and the Russian alphabet in KOI8-R's
  * order, small letters at 0xc0-0xdf and capitals at 0xe0-0xff. A character
  * of a long name that the set lacks reads as '?', which no FAT name holds,
  * and one outside the Basic Multilingual Plane as two.

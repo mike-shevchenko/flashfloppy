@@ -65,9 +65,9 @@ TEST(names_short)
         /* KASE with A umlaut, as a German MS-DOS writes it. */
         { CODEPAGE_437, FALSE, "K\x8eSE.IMG", "K\x82SE.IMG" },
         { CODEPAGE_866, FALSE, "K\x8eSE.IMG", "K\xefSE.IMG" },
-        /* 437's sharp S; its and 850's pound are no longer in the set. */
-        { CODEPAGE_437, FALSE, "\x9c\xe1.IMG", "?\xbf.IMG" },
-        { CODEPAGE_850, FALSE, "\x9c.IMG", "?.IMG" },
+        /* 437's sharp S; 437 and 850 share the pound cell. */
+        { CODEPAGE_437, FALSE, "\x9c\xe1.IMG", "\x9f\xbf.IMG" },
+        { CODEPAGE_850, FALSE, "\x9c.IMG", "\x9f.IMG" },
         /* CP852's dedicated letters, currency and shared glyphs. */
         { CODEPAGE_852, FALSE,
           "\xc6\xa4\x8f\xa8\x95\x9d\xe3\xe8.IMG",
@@ -222,7 +222,7 @@ TEST(names_conversions)
         { 0x021a, 0x0162 }, { 0x021b, 0x0163 }
     };
     static const uint16_t removed[] = {
-        0x00a2, 0x00a3, 0x00a5, 0x20a7, 0x0192, 0x00aa, 0x00ba,
+        0x00a2, 0x00a5, 0x20a7, 0x0192, 0x00aa, 0x00ba,
         0x00bf, 0x2310, 0x00ac, 0x00bd, 0x00bc, 0x00a1, 0x00ab, 0x00bb,
         0x02c7, 0x25a0
     };
@@ -234,10 +234,8 @@ TEST(names_conversions)
     unsigned int c, i;
 
     /* Every assigned character of the set to Unicode and back. */
-    for (c = 1; c < 0x100; c++) {
-        if (c != 0x9f)
-            CHECK_EQ(ff_uni2oem(ff_oem2uni(c, 0), 0), c);
-    }
+    for (c = 1; c < 0x100; c++)
+        CHECK_EQ(ff_uni2oem(ff_oem2uni(c, 0), 0), c);
     for (i = 0; i < ARRAY_SIZE(central); i++) {
         CHECK_EQ(ff_oem2uni(0x02 + i, 0), central[i]);
         CHECK_EQ(ff_uni2oem(central[i], 0), 0x02 + i);
@@ -264,6 +262,10 @@ TEST(names_conversions)
     CHECK_EQ(ff_wtoupper(0x131), 'I');
     CHECK_EQ(ff_uni2oem(0xa4, 0), 0x01);
     CHECK_EQ(ff_oem2uni(0x01, 0), 0xa4);
+    CHECK_EQ(charset_to_rom(0x9f, LCDCS_jap), 0x9c);
+    CHECK_EQ(charset_to_rom(0x9f, LCDCS_eur), 0xa3);
+    CHECK_EQ(charset_to_rom(0x9f, LCDCS_cyr), 0xcf);
+    CHECK_EQ(charset_to_rom(0x9f, CHARSET_osd), '?');
     CHECK_EQ(ff_uni2oem(0x141, 0), 0x07);
     ff_cfg.short_name_codepage = CODEPAGE_866;
     CHECK(charset_sfn_match(yo_dir, yo_russian));

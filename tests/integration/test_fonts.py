@@ -51,7 +51,7 @@ class FontImages(unittest.TestCase):
         self.assertEqual(len(mk_font.low), 31)
         self.assertEqual(mk_font.low[0], 0x00a4)
         self.assertEqual(mk_font.latin[30], 0x0131)
-        self.assertIsNone(mk_font.latin[31])
+        self.assertEqual(mk_font.latin[31], 0x00a3)
         self.assertEqual(mk_font.latin[62], 0x00ff)
         self.assertEqual(mk_font.latin[63], 0x00df)
         for n in range(15):
@@ -79,7 +79,7 @@ class FontImages(unittest.TestCase):
                 self.assertEqual(assigned[0x02], 0x0102)
                 self.assertEqual(assigned[0x1f], 0x017c)
                 self.assertEqual(assigned[0x7f], 0x25a1)
-                self.assertIsNone(assigned[0x9f])
+                self.assertEqual(assigned[0x9f], 0x00a3)
                 self.assertEqual(assigned[0xbf], 0x00df)
 
     def test_c_conversion(self):

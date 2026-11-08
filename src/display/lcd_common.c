@@ -313,9 +313,9 @@ void lcd_sync(void)
 }
 
 /* The glyph of character @c of the set of charset.h in the OLED fonts,
- * which hold the 31 characters at 0x01-0x1f, ASCII's 95, the 63 Latin letters
- * at 0x80-0xbf except 0x9f, and the Russian letters in the set's order, then
- * a hollow square, the glyph of every code without one. */
+ * which hold the 31 characters at 0x01-0x1f, ASCII's 95, the 64 Latin cells
+ * at 0x80-0xbf, and the Russian letters in the set's order, then a hollow
+ * square, the glyph of every code without one. */
 static unsigned int oled_font_index(unsigned int c)
 {
 #ifdef OLED_FONT_ASCII_ONLY
@@ -329,11 +329,11 @@ static unsigned int oled_font_index(unsigned int c)
         return c - 0x01;
     if ((c >= 0x20) && (c <= 0x7e))
         return c - 0x20 + 31;
-    if ((c >= 0x80) && (c <= 0xbf) && (c != 0x9f))
-        return c - 0x80 + 31 + 95 - (c > 0x9f);
+    if ((c >= 0x80) && (c <= 0xbf))
+        return c - 0x80 + 31 + 95;
     if (c >= 0xc0)
-        return c - 0xc0 + 31 + 95 + 63;
-    return 31 + 95 + 63 + 64;
+        return c - 0xc0 + 31 + 95 + 64;
+    return 31 + 95 + 64 + 64;
 #endif
 }
 
