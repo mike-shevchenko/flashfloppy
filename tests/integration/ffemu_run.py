@@ -269,3 +269,13 @@ class Case:
         for kind, text, ok, ms in waits:
             self.assertTrue(
                 ok, "wait %s %s timed out\n%s" % (kind, text, r.report()))
+
+
+def font_glyphs(font):
+    """The glyphs of the build's OLED font @font, 6x13 or 8x16, by their code
+    points: each its columns as 16-bit values, bit 0 the top pixel, unpacked
+    from the generated file by scripts/mk_font.py."""
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import mk_font
+    return mk_font.read_font(os.path.join(OUT, "ffemu", "shugart", "gen",
+                                          "oled_font_%s.c" % font))
