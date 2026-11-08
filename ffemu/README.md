@@ -335,11 +335,11 @@ it included, stays.
 ## The floppy interface
 
 The FDD rows of the Controls pane show the FDD type, the kind of controller on
-the other side of the cable, `Step/Dir` or `Apple2`, and the signals that it
+the other side of the cable, `Shugart` or `Apple2`, and the signals that it
 sends to the drive, each lit in dark yellow while it is active as on the
 schematics, whatever its voltage, with the key that changes it below:
 
-- Step/Dir (Shugart, PC and the like): `[` toggles DS (drive select), `]` MO
+- Shugart (Shugart, PC and the like): `[` toggles DS (drive select), `]` MO
   (motor on), `;` WRG (write gate), `-` DIR (step direction: active, as at the
   start, steps inward to higher tracks), `+` sends a STP (step) pulse, which
   stays lit for a moment, and `\` toggles SID (side select).
@@ -361,7 +361,7 @@ detects the type as it boots: it is on an Apple2 if at least three of the four
 phases are held low, as an Apple2 does at power-on, for at least a quarter of
 its 200 ms "5v settle" delay. The type is kept in the settings as `fdd-type`.
 In `ffemu-shugart` and `ffemu-apple2` the firmware has no such choice, so the
-dialog does not offer it, and the type is always Step/Dir or always Apple2.
+dialog does not offer it, and the type is always Shugart or always Apple2.
 
 The Apple2 type drives the phases as a "universal" cable does, one that serves
 the stock Apple2 firmware, Oleg Odintsov's Gotek firmware 307 for the Agat (the
@@ -377,7 +377,7 @@ Russian layout, as do the keys of `[`, `]` and `;`. The drive selected or
 enabled is the default. The signals survive a power cycle of the device (Home),
 as the computer's would; Ctrl+Home or a change of the FDD type puts them back
 to the defaults. The Status pane shows the drive as the firmware sees it,
-labeled with the mode that the firmware detected, `Step/Dir` or `Apple2`: the
+labeled with the mode that the firmware detected, `Shugart` or `Apple2`: the
 cylinder and the side, and, as Floppy, the image mounted; the firmware's
 display shows them as on the device, and the beeper sounds each step, unless
 `step-volume` is 0. The firmware's banner, shown while no USB drive is in, ends
@@ -543,8 +543,8 @@ to standard output, which is how it can be tested without a terminal:
 The commands are `key <action>`, the action being `select`, `left`, `right`,
 `cw`, `ccw`, `remove`, `insert`, `reset` (Home), `relaunch` (Ctrl+Home), `quit`
 or `latch`, or on the floppy interface `sel`, `write`, `motor`, `dir`, `step`
-or `side` for Step/Dir, and `sel`, `write`, `phase-in`, `phase-out` or
-`release` for Apple2, `fdd-type <step-dir|apple2>`, which in `ffemu-multi` sets
+or `side` for Shugart, and `sel`, `write`, `phase-in`, `phase-out` or
+`release` for Apple2, `fdd-type <shugart|apple2>`, which in `ffemu-multi` sets
 the FDD type and power-cycles the device as the Externals dialog does,
 `usb-fat <fat32|fat16>`, which sets the file system of a drive made from a
 directory and inserts such a drive again as the Externals dialog does,
