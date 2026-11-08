@@ -45,6 +45,36 @@ class WriteMarks(fr.Case, unittest.TestCase):
         self.check(
             "ffemu-apple2", "tm1651-3digit", DSK, "01 3f 3f", "00 3f 3f")
 
+    def test_apple2_lcd_write_and_steps(self):
+        """W stays lit as the phases advance under WRQ."""
+        r = fr.run("ffemu-apple2", [
+            "wait 10000 log Name:",
+            "key write",
+            "wait 3000 display W",
+            "key phase-in", "key phase-in", "sleep 500",
+            "wait 3000 display W",
+            "key phase-in", "key phase-in", "sleep 500",
+            "wait 3000 display W",
+            "key write",
+            "wait 3000 display  T"],
+            settings=["display = hd44780-16x2"], files=DSK)
+        self.assertWaits(r, 5)
+
+    def test_apple2_led_write_and_steps(self):
+        """The top segment stays lit as the phases advance under WRQ."""
+        r = fr.run("ffemu-apple2", [
+            "wait 10000 segments 00 3f 3f",
+            "key write",
+            "wait 3000 segments 01 3f 3f",
+            "key phase-in", "key phase-in",
+            "wait 3000 segments 11 3f 06",
+            "key phase-in", "key phase-in",
+            "wait 3000 segments 41 3f 5b",
+            "key write",
+            "wait 3000 segments 40 3f 5b"],
+            settings=["display = tm1651-3digit"], files=DSK)
+        self.assertWaits(r, 5)
+
 
 if __name__ == "__main__":
     unittest.main()
