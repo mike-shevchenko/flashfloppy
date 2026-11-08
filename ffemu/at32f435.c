@@ -16,6 +16,7 @@
 #define lcd_init at435_lcd_init
 #define lcd_clear at435_lcd_clear
 #define lcd_write at435_lcd_write
+#define lcd_write_spinner at435_lcd_write_spinner
 #define lcd_write_shifted at435_lcd_write_shifted
 #define lcd_column_pixels at435_lcd_column_pixels
 #define lcd_backlight at435_lcd_backlight
@@ -46,6 +47,7 @@ void lcd_clear(void);
 #undef lcd_init
 #undef lcd_clear
 #undef lcd_write
+#undef lcd_write_spinner
 #undef lcd_write_shifted
 #undef lcd_column_pixels
 #undef lcd_backlight
@@ -269,6 +271,8 @@ void at435_bus_sync(uint64_t now)
 bool_t f105_lcd_init(void);
 void f105_lcd_clear(void);
 void f105_lcd_write(int col, int row, int min, const char *str);
+void f105_lcd_write_spinner(int row, unsigned int col, unsigned int width,
+                            unsigned int phases);
 void f105_lcd_write_shifted(int col, int row, int nr, unsigned int px,
                             const char *str);
 unsigned int f105_lcd_column_pixels(void);
@@ -306,6 +310,15 @@ void lcd_write(int col, int row, int min, const char *str)
         at435_lcd_write(col, row, min, str);
     else
         f105_lcd_write(col, row, min, str);
+}
+
+void lcd_write_spinner(int row, unsigned int col, unsigned int width,
+                       unsigned int phases)
+{
+    if (at435)
+        at435_lcd_write_spinner(row, col, width, phases);
+    else
+        f105_lcd_write_spinner(row, col, width, phases);
 }
 
 void lcd_write_shifted(int col, int row, int nr, unsigned int px,

@@ -83,6 +83,11 @@ static char text[5][40];
  * width on an OLED, whose columns are 21 at most. */
 static char text_wide[ARRAY_SIZE(text)][21];
 
+/* Each row's Apple2 phase spinner, outside the character encoding. */
+static struct oled_spinner {
+    uint8_t row, col, width, phases;
+} oled_spinners[2][ARRAY_SIZE(text)];
+
 /* Of each text row, in its layouts of normal and of half width, the columns
  * that an OLED shows px pixels to the left in the normal display mode, from
  * col to col + nr - 1, the pixels so freed at their right from next's glyph:
@@ -206,7 +211,21 @@ void lcd_clear(void)
 {
     memset(text, ' ', sizeof(text));
     memset(text_wide, ' ', sizeof(text_wide));
+    memset(oled_spinners, 0, sizeof(oled_spinners));
     memset(oled_shift, 0, sizeof(oled_shift));
+}
+
+void lcd_write_spinner(int row, unsigned int col, unsigned int width,
+                       unsigned int phases)
+{
+    struct oled_spinner *s = &oled_spinners[!!(row & LCD_WIDE)][row & ~LCD_WIDE];
+    uint32_t oldpri = IRQ_save(I2C_IRQ_PRI);
+
+    s->row = row & ~LCD_WIDE;
+    s->col = col;
+    s->width = width;
+    s->phases = phases;
+    IRQ_restore(oldpri);
 }
 
 void lcd_write(int col, int row, int min, const char *str)
@@ -341,20 +360,22 @@ static void oled_font_glyph(const struct oled_font *f, unsigned int g,
 #if TARGET_SUPPORTS_APPLE2
 #include "oled_spinner.c"
 
-/* Draws the phase spinners of text row @pc over its rendering in buffer[],
- * which holds @half of a double-height row, or 0 for a row of normal height.
- * In a @wide row, @stretched selects the two-cell spinners before stretching;
- * otherwise only the one-cell spinners are drawn over the stretched row. */
-static void oled_draw_spinners(const char *pc, unsigned int half,
-                               bool_t wide, bool_t stretched)
+/* Draw content @row's phase spinner over its rendering in buffer[], which
+ * holds @half of a double-height row, or 0 for normal height. In a @wide row,
+ * @stretched selects a two-cell spinner before stretching; otherwise only a
+ * one-cell spinner is drawn over the stretched row. */
+static void oled_draw_spinner(unsigned int row, unsigned int half,
+                              bool_t wide, bool_t stretched)
 {
-    unsigned int i, w = (oled_font == FONT_8x16) ? 8 : 6, x = (w == 6);
+    const struct oled_spinner *s = &oled_spinners[!!wide][row];
+    unsigned int w = (oled_font == FONT_8x16) ? 8 : 6;
+    unsigned int x = s->col * w + (w == 6);
 
-    for (i = 0; i < (wide ? lcd_columns/2 : lcd_columns); i++, x += w)
-        if ((((uint8_t)pc[i] & ~0xf) == OLED_SPINNER)
-            && (!wide || ((pc[i+1] == ' ') == stretched)))
-            oled_spinner(&buffer[(wide && !stretched) ? 2*x : x],
-                         w, pc[i] & 0xf, half);
+    if (!s->width || (s->row != row) || (display_mode != DM_normal)
+        || (wide && ((s->width == 2) != stretched)))
+        return;
+    oled_spinner(&buffer[(wide && !stretched) ? 2*x : x],
+                 w, s->phases, half);
 }
 #endif
 
@@ -514,9 +535,9 @@ static void oled_to_lcd_row(int in_row)
     pc = (row >= ARRAY_SIZE(text)) ? NULL : wide ? text_wide[row] : text[row];
     if (pc != NULL) {
         oled_convert_text_row(pc, &oled_shift[!!wide][row]);
-#if TARGET == TARGET_apple2
-        if (wide && !glyphs_mode)
-            oled_draw_spinners(pc, 0, TRUE, TRUE);
+#if TARGET_SUPPORTS_APPLE2
+        if (wide)
+            oled_draw_spinner(row, 0, TRUE, TRUE);
 #endif
         if (wide)
             oled_double_width();
@@ -529,8 +550,8 @@ static void oled_to_lcd_row(int in_row)
         oled_double_height(buffer, &buffer[(half == 1) ? 128 : 0], 0x3);
 
 #if TARGET_SUPPORTS_APPLE2
-    if ((pc != NULL) && !glyphs_mode)
-        oled_draw_spinners(pc, half, wide, FALSE);
+    if (pc != NULL)
+        oled_draw_spinner(row, half, wide, FALSE);
 #endif
 }
 
