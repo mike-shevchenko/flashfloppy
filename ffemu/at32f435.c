@@ -334,6 +334,7 @@ unsigned int lcd_column_pixels(void)
 {
     return at435 ? at435_lcd_column_pixels() : f105_lcd_column_pixels();
 }
+
 void lcd_backlight(bool_t on)
 {
     if (at435)
