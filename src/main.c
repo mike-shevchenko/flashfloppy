@@ -432,6 +432,7 @@ static void clear_track4(void)
 
     for (i = 0; i < 2; i++) {
         track4[i][0] = '\0';
+        lcd_write_spinner(4 | (i ? LCD_WIDE : 0), 0, 0, 0);
         scroll_init(2 + i);
     }
 }
@@ -507,20 +508,25 @@ static void display_write_slot(bool_t nav_mode)
     if (cfg.hxc_mode)
         msg[3] = '\0';
     lcd_write(0, 1 | LCD_WIDE, -1, msg);
+    lcd_write_spinner(1, 0, 0, 0);
+    lcd_write_spinner(1 | LCD_WIDE, 0, 0, 0);
     lcd_on();
 }
 
 /* The track info that the status row shows. */
 static struct track_info lcd_ti;
 
-/* Writes the side or phase indicator to @s: a spinner of @spinner cells on an
- * Apple2 OLED, else a text digit preceded by @lead if nonzero. */
+/* Writes the side or phase indicator to @s: spaces for a spinner of @spinner
+ * cells on an Apple2 OLED, its width into @width, else a text digit preceded
+ * by @lead if nonzero and zero into @width. */
 static char *track_indicator(char *s, const struct track_info *ti,
-                             unsigned int spinner, char lead)
+                             unsigned int spinner, char lead,
+                             unsigned int *width)
 {
+    *width = 0;
     if (apple2_mode && spinner && is_oled_display) {
-        *s++ = OLED_SPINNER | ti->phases;
-        if (spinner == 2)
+        *width = spinner;
+        while (spinner--)
             *s++ = ' ';
     } else {
         if (lead)
@@ -534,17 +540,18 @@ static char *track_indicator(char *s, const struct track_info *ti,
 /* The track in short into @s: the side or phase indicator, then @mode and the
  * track. */
 static void track_short(char *s, const struct track_info *ti, char mode,
-                        unsigned int spinner)
+                        unsigned int spinner, unsigned int *width)
 {
-    s = track_indicator(s, ti, spinner, '\0');
+    s = track_indicator(s, ti, spinner, '\0', width);
     snprintf(s, 5, "%c%02u", mode, ti->cyl);
 }
 
 /* The track in long into @s: "T:", the track and the side or phase indicator. */
-static void track_long(char *s, const struct track_info *ti)
+static void track_long(char *s, const struct track_info *ti,
+                       unsigned int *width)
 {
     snprintf(s, 6, "T:%02u", ti->cyl);
-    s = track_indicator(s + strlen(s), ti, 2, '.');
+    s = track_indicator(s + strlen(s), ti, 2, '.', width);
     *s = '\0';
 }
 
@@ -560,9 +567,10 @@ static void write_status_track(unsigned int wide, const struct track_info *ti,
     bool_t in_short = ff_cfg.show_tracks_short;
     unsigned int col = wide ? 0 : in_short ? 7 : wp_column;
     unsigned int n = layout_columns(wide) - col;
+    unsigned int width;
 
     if (in_short) {
-        track_short(s, ti, mode, wide ? 1 : 2);
+        track_short(s, ti, mode, wide ? 1 : 2, &width);
         if (wide) {
             slot_nr_text(slot, cfg.slot_nr);
             snprintf(msg, sizeof(msg), "%s%*s%s", slot,
@@ -571,11 +579,14 @@ static void write_status_track(unsigned int wide, const struct track_info *ti,
             snprintf(msg, sizeof(msg), "%*s%s", n - strlen(s), "", s);
         }
     } else {
-        track_long(s, ti);
+        track_long(s, ti, &width);
         snprintf(msg, sizeof(msg), "%c%*s%s", (mode == 'T') ? ' ' : mode,
                  wide ? n - 1 - strlen(s) : 1, "", s);
     }
     lcd_write(col, 1 | (wide ? LCD_WIDE : 0), -1, msg);
+    lcd_write_spinner(1 | (wide ? LCD_WIDE : 0),
+                      col + strlen(msg) - (in_short ? strlen(s) : width),
+                      width, ti->phases);
 }
 
 /* Writes track info @ti, @mode for the drive's state, to the status row and
@@ -583,7 +594,7 @@ static void write_status_track(unsigned int wide, const struct track_info *ti,
 static void lcd_write_track(const struct track_info *ti, char mode)
 {
     char *p, nr[8];
-    unsigned int w, cells;
+    unsigned int w, cells, width;
 
     write_status_track(FALSE, ti, mode);
     if (row_wide(1))
@@ -598,7 +609,10 @@ static void lcd_write_track(const struct track_info *ti, char mode)
         cells = track4_width(w);
         if (!w && !(apple2_mode && is_oled_display))
             *p++ = ' ';
-        track_short(p, ti, mode, w ? 1 : 2);
+        track_short(p, ti, mode, w ? 1 : 2, &width);
+        lcd_write_spinner(4 | (w ? LCD_WIDE : 0),
+                          layout_columns(w) - track4_width(w) + (p - track4[w]),
+                          width, ti->phases);
         if (track4_width(w) != cells) {
             /* The image's number comes with the track. */
             if ((cells == 0) && (name4_column(w) != 0)) {

@@ -198,15 +198,7 @@ static unsigned int osd_prep_buffer(void)
         else
             memset(q, ' ', lcd_columns);
         osd_map_row(q);
-#if TARGET_SUPPORTS_APPLE2
-        /* The OLED's phase spinner goes as a blank: FF OSD has no glyph
-         * for it. The font test sends its code as it is. */
-        for (i = 0; i < lcd_columns; i++, q++)
-            if (!glyphs_mode && (((uint8_t)*q & ~0xf) == OLED_SPINNER))
-                *q = ' ';
-#else
         q += lcd_columns;
-#endif
     }
 
     if (i2c_addr == 0)
