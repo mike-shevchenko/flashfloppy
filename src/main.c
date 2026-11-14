@@ -218,7 +218,7 @@ static void write_track_combined(unsigned int row, unsigned int wide)
 /* Whether display-order shows row 4. */
 static bool_t row4_shown(void)
 {
-    uint16_t order = ff_cfg.display_order;
+    uint16_t order = lcd_display_order();
     unsigned int i;
 
     if (order != DORD_default)
@@ -488,6 +488,7 @@ static void display_write_slot(bool_t nav_mode)
         return;
     }
 
+    display_mode = DM_selector;
     clear_track_combined();
 
     if (nav_mode && !cfg_scroll_reset) {
@@ -671,6 +672,7 @@ static void lcd_write_track_info(bool_t force)
     if (display_type != DT_LCD_OLED)
         return;
 
+    display_mode = DM_normal;
     floppy_get_track(&ti);
     ASSERT(ti.side <= 1);
 
@@ -1698,6 +1700,11 @@ static void read_ff_cfg(void)
         case FFCFG_display_order:
             ff_cfg.display_order = parse_display_order(
                 opts.arg, &ff_cfg.display_order_wide);
+            break;
+
+        case FFCFG_selector_display_order:
+            ff_cfg.selector_display_order = parse_display_order(
+                opts.arg, &ff_cfg.selector_display_order_wide);
             break;
 
         case FFCFG_osd_display_order: {
