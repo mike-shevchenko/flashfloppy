@@ -218,7 +218,7 @@ static void write_track_combined(unsigned int row, unsigned int wide)
 /* Whether display-order shows row 4. */
 static bool_t row4_shown(void)
 {
-    uint16_t order = ff_cfg.display_order;
+    uint16_t order = lcd_display_order();
     unsigned int i;
 
     if (order != DORD_default)
@@ -423,6 +423,7 @@ static void display_write_slot(bool_t nav_mode)
         return;
     }
 
+    display_mode = DM_selector;
     /* No track in the combined rows until an image is in. */
     for (i = 0; i < 2; i++) {
         track_combined[i][0] = '\0';
@@ -606,6 +607,7 @@ static void lcd_write_track_info(bool_t force)
     if (display_type != DT_LCD_OLED)
         return;
 
+    display_mode = DM_normal;
     floppy_get_track(&ti);
     ASSERT(ti.side <= 1);
 
@@ -1618,6 +1620,16 @@ static void read_ff_cfg(void)
             ff_cfg.display_order = parse_display_order(
                 opts.arg, &ff_cfg.display_order_wide);
             break;
+
+        case FFCFG_selector_display_order: {
+            uint8_t wide;
+
+            ff_cfg.selector_display_order = parse_display_order(opts.arg, &wide);
+#ifndef MINIMAL_UI
+            ff_cfg.selector_display_order_wide = wide;
+#endif
+            break;
+        }
 
         case FFCFG_osd_display_order: {
             uint8_t wide; /* FF OSD draws no row wide */
