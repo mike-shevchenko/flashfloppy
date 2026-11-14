@@ -265,17 +265,17 @@ class Apple2(Case, unittest.TestCase):
         return [line for line in r.lines if line and set(line) <= set(".#")]
 
     def test_spinner_6x13_geometry(self):
-        """Each phase is a rectangle, together 9x9 at (2, 2) in 12x13."""
+        """Each phase is a rectangle, together 9x9 at (2, 3) in 12x16."""
         frames = [self.status_pixels("0,1", "6x13", n) for n in range(1, 5)]
         left = 1 + 14*6
         bars = {
-            0: (range(4, 9), range(9, 11)),
-            1: (range(2, 4), range(4, 9)),
-            2: (range(4, 9), range(2, 4)),
-            3: (range(9, 11), range(4, 9)),
+            0: (range(4, 9), range(10, 12)),
+            1: (range(2, 4), range(5, 10)),
+            2: (range(4, 9), range(3, 5)),
+            3: (range(9, 11), range(5, 10)),
         }
         for frame, side in zip(frames, (1, 2, 3, 0)):
-            actual = {(x-left, y-16) for y in range(16, 29)
+            actual = {(x-left, y-16) for y in range(16, 32)
                       for x in range(left, left + 12) if frame[y][x] == "#"}
             xs, ys = bars[side]
             self.assertEqual(actual, {(x, y) for x in xs for y in ys},

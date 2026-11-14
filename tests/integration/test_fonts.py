@@ -34,7 +34,7 @@ class FontImages(unittest.TestCase):
                 glyphs, width = mk_font.read_png_font(
                     committed, mk_font.codes_of(""))
                 png = os.path.join(tmp, "6x13.png")
-                mk_font.write_png(png, glyphs, width, 13, 1)
+                mk_font.write_png(png, glyphs, width, 16, 0)
             finally:
                 mk_font.cell_codes = original
             with self.assertRaises(ValueError) as caught:
@@ -60,7 +60,7 @@ class FontImages(unittest.TestCase):
         for n in range(30):
             self.assertEqual(chr(mk_font.latin[n]).lower(),
                              chr(mk_font.latin[n + 32]))
-        for font, size in (("6x13", (6, 13)), ("8x16", (8, 16))):
+        for font, size in (("6x13", (6, 16)), ("8x16", (8, 16))):
             with self.subTest(font=font):
                 png = os.path.join(ROOT, "fonts", font + ".png")
                 cells, width, height = mk_font.read_png_image(png)
@@ -108,7 +108,7 @@ class FontImages(unittest.TestCase):
 
     def test_png_round_trip(self):
         """PNG glyphs regenerate an identical image."""
-        for font, height, tgap in (("6x13", 13, 1), ("8x16", 16, 0)):
+        for font, height, tgap in (("6x13", 16, 0), ("8x16", 16, 0)):
             with self.subTest(font=font), tempfile.TemporaryDirectory() as tmp:
                 committed = os.path.join(ROOT, "fonts", font + ".png")
                 glyphs, width = mk_font.read_png_font(
