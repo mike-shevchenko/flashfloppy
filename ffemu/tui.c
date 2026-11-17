@@ -5043,6 +5043,12 @@ static const struct {
     { "oled-font", "8x16",
       "Makes 16 columns; ignores \"narrow\" and \"narrower\" suffixes to "
       "\"display-type\"" },
+    { "oled-font", "7x8",
+      "Makes 18 columns of ASCII and Cyrillic, with accented Latin letters "
+      "shown as plain ASCII" },
+    { "oled-font", "8x8",
+      "Makes 16 columns of ASCII and Cyrillic, with accented Latin letters "
+      "shown as plain ASCII" },
     { "show-filename-ext", "no",
       "Never show floppy filename extensions" },
     { "show-filename-ext", "yes",

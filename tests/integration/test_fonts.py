@@ -82,13 +82,32 @@ class FontImages(unittest.TestCase):
                 self.assertEqual(assigned[0x9f], 0x00a3)
                 self.assertEqual(assigned[0xbf], 0x00df)
 
+    def test_small_cell_layout(self):
+        """Small fonts hold ASCII and Cyrillic; every other cell is clear."""
+        for font, size in (("7x8", (7, 8)), ("8x8", (8, 8))):
+            with self.subTest(font=font):
+                png = os.path.join(ROOT, "fonts", font + ".png")
+                with open(png, "rb") as handle:
+                    self.assertEqual(handle.read(26)[25], 6)
+                cells, width, height = mk_font.read_png_image(png)
+                self.assertEqual((width, height), size)
+                for cell in range(256):
+                    occupied = (0x20 <= cell < 0x80) or (cell >= 0xc0)
+                    if occupied and cell != 0x20:
+                        self.assertTrue(any(cells[cell]),
+                                        "cell 0x%02x is blank" % cell)
+                    else:
+                        self.assertFalse(any(cells[cell]),
+                                         "cell 0x%02x is not blank" % cell)
+
     def test_c_conversion(self):
         """Packed C fonts contain exactly the PNG's glyphs."""
         script = os.path.join(ROOT, "scripts", "mk_font.py")
-        for font in ("6x16", "8x16"):
+        for font in ("6x16", "8x16", "7x8", "8x8"):
             with self.subTest(font=font), tempfile.TemporaryDirectory() as tmp:
                 committed = os.path.join(ROOT, "fonts", font + ".png")
-                extents = (None, "ascii") if font == "6x16" else (None,)
+                extents = ((None, "ascii") if font == "6x16" else
+                           ("cyr",) if font.endswith("x8") else (None,))
                 for extent in extents:
                     outdir = os.path.join(tmp, extent or "full")
                     os.mkdir(outdir)
@@ -108,13 +127,15 @@ class FontImages(unittest.TestCase):
 
     def test_png_round_trip(self):
         """PNG glyphs regenerate an identical image."""
-        for font, height, tgap in (("6x16", 16, 0), ("8x16", 16, 0)):
+        fonts = (("6x16", ""), ("8x16", ""), ("7x8", "cyr"), ("8x8", "cyr"))
+        for font, extent in fonts:
             with self.subTest(font=font), tempfile.TemporaryDirectory() as tmp:
                 committed = os.path.join(ROOT, "fonts", font + ".png")
                 glyphs, width = mk_font.read_png_font(
-                    committed, mk_font.codes_of(""))
+                    committed, mk_font.codes_of(extent))
                 png = os.path.join(tmp, font + ".png")
-                mk_font.write_png(png, glyphs, width, height, tgap)
+                height = 8 if extent == "cyr" else 16
+                mk_font.write_png(png, glyphs, width, height, 0, extent)
                 self.assertEqual(mk_font.read_png_image(png),
                                  mk_font.read_png_image(committed))
 

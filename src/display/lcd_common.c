@@ -63,6 +63,11 @@ static uint8_t oled_height;
  * ff_cfg.oled_font before it resets the system. */
 static uint8_t oled_font;
 
+static bool_t oled_small_font(void)
+{
+    return (oled_font == FONT_7x8) || (oled_font == FONT_8x8);
+}
+
 #define OLED_ADDR 0x3c
 enum { OLED_unknown, OLED_ssd1306, OLED_sh1106 };
 static uint8_t oled_model;
@@ -131,10 +136,6 @@ static void timeout_fn(void *unused)
 /* Each driver's own, which the code below calls. */
 static bool_t i2c_probe(uint8_t a);
 static bool_t i2c_sync_write(uint8_t b);
-#ifdef font_extra
-static void oled_glyph_8x16(uint8_t *q, unsigned int g, unsigned int from,
-                            unsigned int to);
-#endif
 
 /* Emit a 4-bit command to the HD44780 via the DMA buffer. */
 static void emit4(uint8_t **p, uint8_t val)
@@ -273,7 +274,9 @@ void lcd_write_glyphs(int row, unsigned int base)
 unsigned int lcd_shown_rows(void)
 {
     /* FF OSD alone shows two: the font test gives it no more. */
-    return is_oled_display ? oled_height / 16 : i2c_addr ? lcd_rows : 2;
+    return is_oled_display
+        ? oled_height / ((oled_small_font() && (oled_height == 32)) ? 8 : 16)
+        : i2c_addr ? lcd_rows : 2;
 }
 
 void lcd_write_shifted(int col, int row, int nr, unsigned int px,
@@ -297,7 +300,9 @@ void lcd_write_shifted(int col, int row, int nr, unsigned int px,
 
 unsigned int lcd_column_pixels(void)
 {
-    return (oled_font == FONT_8x16) ? 8 : 6;
+    if (oled_font == FONT_6x16)
+        return 6;
+    return (oled_font == FONT_7x8) ? 7 : 8;
 }
 
 void lcd_backlight(bool_t on)
@@ -313,10 +318,9 @@ void lcd_sync(void)
         cpu_relax();
 }
 
-/* The glyph of character @c of the set of charset.h in the OLED fonts,
- * which hold the 31 characters at 0x01-0x1f, ASCII's 95, the 64 Latin cells
- * at 0x80-0xbf, and the Russian letters in the set's order, then a hollow
- * square, the glyph of every code without one. */
+/* The glyph of character @c in the active font. The small fonts hold ASCII,
+ * the Russian letters, then their fallback; accented Latin letters show their
+ * ASCII base letters. */
 static unsigned int oled_font_index(unsigned int c)
 {
 #ifdef OLED_FONT_ASCII_ONLY
@@ -324,6 +328,17 @@ static unsigned int oled_font_index(unsigned int c)
         return c - 0x20;
     return 95;
 #else
+    if (oled_small_font()) {
+        if (c == 0x01)
+            c = '$';
+        else if ((c < 0x20) || ((c >= 0x80) && (c < 0xc0)))
+            c = charset_to_rom(c, CHARSET_osd);
+        if ((c >= 0x20) && (c <= 0x7e))
+            return c - 0x20;
+        if (c >= 0xc0)
+            return c - 0xc0 + 95;
+        return 95 + 64;
+    }
     if (c == 0x01)
         return 0;
     if ((c >= 0x02) && (c <= 0x1f))
@@ -339,16 +354,68 @@ static unsigned int oled_font_index(unsigned int c)
 }
 
 extern const struct oled_font oled_font_6x16;
+#ifdef font_extra
+extern const struct oled_font oled_font_8x16;
+extern const struct oled_font oled_font_7x8;
+extern const struct oled_font oled_font_8x8;
+#endif
+
+static const struct oled_font *oled_active_font(void)
+{
+#ifdef font_extra
+    if (oled_font == FONT_8x16)
+        return &oled_font_8x16;
+    if (oled_font == FONT_7x8)
+        return &oled_font_7x8;
+    if (oled_font == FONT_8x8)
+        return &oled_font_8x8;
+#endif
+    return &oled_font_6x16;
+}
 
 /* The columns of glyph @g of font @f into @cols, twice the font's width:
  * the top page's, then the bottom page's, bit 0 a column's top pixel. */
 static void oled_font_glyph(const struct oled_font *f, unsigned int g,
                             uint8_t *cols)
 {
-    const uint8_t *p = f->data + f->off[g];
-    unsigned int w = f->w, top = *p >> 4, nr = (*p++ & 15) + 1;
-    unsigned int x, y, row, bits = 0, nbits = 0;
+    const uint8_t *p = f->data, *off = f->off + (g >> 1) * 3;
+    const uint8_t *end = p + ((g & 1) ? (off[1] >> 4 | off[2] << 4)
+        : (off[0] | (off[1] & 15) << 8));
+    uint8_t raw[17], history[512];
+    unsigned int h = 0, out = 0, expected = 0, w = f->w;
+    unsigned int x, y, row, bits = 0, nbits = 0, top, nr;
+    bool_t capture = FALSE;
 
+    /* Rebuild the 512-byte history, then this glyph's packed bytes. */
+    for (;;) {
+        unsigned int control, len, distance = 0;
+        if (p == end)
+            capture = TRUE;
+        control = *p++;
+        if (control & 0x80) {
+            len = ((control >> 1) & 0x3f) + 3;
+            distance = ((control & 1) << 8 | *p++) + 1;
+        } else {
+            len = control + 1;
+        }
+        while (len--) {
+            uint8_t value = distance ? history[(h - distance) & 0x1ff] : *p++;
+            history[h & 0x1ff] = value;
+            h++;
+            if (capture) {
+                raw[out++] = value;
+                if (out == 1)
+                    expected = 1 + ((((raw[0] & 15) + 1) * w + 7) >> 3);
+                if (out == expected)
+                    goto unpack_glyph;
+            }
+        }
+    }
+
+unpack_glyph:
+    p = raw;
+    top = *p >> 4;
+    nr = (*p++ & 15) + 1;
     memset(cols, 0, 2*w);
     for (y = top; y < top + nr; y++) {
         while (nbits < w) {
@@ -374,34 +441,31 @@ static void oled_draw_spinner(unsigned int row, unsigned int half,
                               bool_t wide, bool_t stretched)
 {
     const struct oled_spinner *s = &oled_spinners[!!wide][row];
-    unsigned int w = (oled_font == FONT_8x16) ? 8 : 6;
+    unsigned int w = lcd_column_pixels();
     unsigned int x = s->col * w + (w == 6);
+    bool_t small = oled_small_font();
 
     if (!s->width || (s->row != row) || (display_mode != DM_normal)
         || (wide && ((s->width == 2) != stretched)))
         return;
-    oled_spinner(&buffer[(wide && !stretched) ? 2*x : x],
-                 w, s->phases, half);
+    oled_spinner(&buffer[(wide && !stretched) ? 2*x : x], w, s->phases, half,
+                 small, small && half && !stretched);
 }
 #endif
 
 /* Writes pixel columns @from to @to - 1 of the glyph of @c to buffer[] at @q,
- * its top and bottom pages. */
+ * its top page and, for a 16-row font, its bottom page. */
 static void oled_glyph(uint8_t *q, char c, unsigned int from,
                        unsigned int to)
 {
+    const struct oled_font *f = oled_active_font();
     unsigned int g = oled_font_index((uint8_t)c);
-    uint8_t glyph[12];
+    uint8_t glyph[16];
 
-#ifdef font_extra
-    if (oled_font == FONT_8x16) {
-        oled_glyph_8x16(q, g, from, to);
-        return;
-    }
-#endif
-    oled_font_glyph(&oled_font_6x16, g, glyph);
+    oled_font_glyph(f, g, glyph);
     memcpy(q, glyph+from, to-from);
-    memcpy(q+128, glyph+6+from, to-from);
+    if (f->h == 16)
+        memcpy(q+128, glyph+f->w+from, to-from);
 }
 
 /* Renders text row @pc into buffer[], its columns shifted as @s says in the
@@ -525,13 +589,16 @@ unsigned int lcd_row_columns(unsigned int row)
 #endif
 }
 
-/* Renders the 16 pixel rows @in_row of the display into buffer[], its top and
- * bottom pages: a text row, or half of a double-height one. */
+/* Renders text-row unit @in_row into buffer[]: 8 pixels for a small font on
+ * 128x32, else 16. A small font's rows are always double height on 128x64. */
 static void oled_to_lcd_row(int in_row)
 {
     uint16_t order, configured = lcd_display_order();
     int i = 0, row, half;
     bool_t large = FALSE, wide;
+    bool_t small = oled_small_font();
+    bool_t compact = small && (oled_height == 32);
+    bool_t auto_large = small && (oled_height == 64);
     char *pc;
 
     order = glyphs_mode ? 0x3210 : (oled_height == 32) ? 0x7710
@@ -542,8 +609,8 @@ static void oled_to_lcd_row(int in_row)
         order = error_order();
 
     for (;;) {
-        large = !!(order & DORD_double);
-        i += large ? 2 : 1;
+        large = auto_large || !!(order & DORD_double);
+        i += auto_large ? 1 : large ? 2 : 1;
         if (i > in_row)
             break;
         order >>= DORD_shift;
@@ -569,14 +636,20 @@ static void oled_to_lcd_row(int in_row)
         memset(buffer, 0, 256);
     }
 
-    half = large ? i - in_row : 0;
-    if (large)
-        oled_double_height(buffer, &buffer[(half == 1) ? 128 : 0], 0x3);
+    half = large ? auto_large ? 2 : i - in_row : 0;
+    if (large) {
+        if (small)
+            oled_double_height(buffer, buffer, 0x3);
+        else
+            oled_double_height(buffer, &buffer[(half == 1) ? 128 : 0], 0x3);
+    }
 
 #if !defined(MINIMAL_UI) && (TARGET == TARGET_apple2)
     if (pc != NULL)
         oled_draw_spinner(row, half, wide, FALSE);
 #endif
+    if (compact && large && (half == 1))
+        memcpy(buffer, buffer+128, 128);
 }
 
 /*
