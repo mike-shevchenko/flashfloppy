@@ -8,6 +8,7 @@ names of ffemu's drive made from a folder, in each code page."""
 import os
 import re
 import tempfile
+import unicodedata
 import unittest
 
 import ffemu_run as fr
@@ -18,23 +19,25 @@ import mk_names_image
 IGRA = {"\u0418\u0433\u0440\u044b/\u0438\u0433\u0440\u0430.img":
         bytes(737280)}
 
-# The OLED's fonts.
+# The OLED's fonts. The small ones substitute plain ASCII for accented Latin.
 FONTS = {
     "6x16": {},
     "8x16": {"flash": ["oled-font = 8x16"]},
+    "7x8": {"flash": ["oled-font = 7x8"]},
+    "8x8": {"flash": ["oled-font = 8x8"]},
 }
 MOUNT = ["wait 15000 log Name:", "sleep 300", "dump"]
 
 
 def font_glyphs(font):
-    """The glyphs of the build's OLED font @font, 6x16 or 8x16, by their code
-    points: each its columns, a bit a pixel row from the top."""
+    """The glyphs of the build's OLED font @font, by their code points: each
+    its columns, a bit a pixel row from the top."""
     return fr.font_glyphs(font)
 
 
 def glyph(font, code):
-    """The columns of character @code in @font of FONTS, as the OLED shows
-    it, with aliases sharing their canonical glyph."""
+    """The columns of character @code in @font of FONTS, as the OLED shows it,
+    with aliases sharing their canonical or plain-ASCII glyph."""
     aliases = {
         0x401: 0x415, 0x451: 0x435,
         0x10c: 0x106, 0x10d: 0x107, 0x160: 0x15a, 0x161: 0x15b,
@@ -46,6 +49,22 @@ def glyph(font, code):
         0x21a: 0x162, 0x21b: 0x163,
     }
     code = aliases.get(code, code)
+    if font not in ("7x8", "8x8"):
+        return font_glyphs(font)[code]
+    if code == 0x00a4:
+        return font_glyphs(font)[ord("$")]
+    if code >= 0x80 and not 0x400 <= code < 0x450:
+        special = {
+            0xc6: "A", 0xe6: "a", 0xd8: "O", 0xf8: "o",
+            0xd0: "D", 0xf0: "d", 0xde: "P", 0xfe: "p",
+            0xdf: "s", 0x131: "i", 0xa3: "?",
+            0x141: "L", 0x142: "l", 0x110: "D", 0x111: "d",
+        }
+        if code in special:
+            code = ord(special[code])
+        else:
+            base = unicodedata.normalize("NFKD", chr(code))[0]
+            code = ord(base) if ord(base) < 0x80 else ord("?")
     return font_glyphs(font)[code]
 
 
@@ -59,8 +78,10 @@ def pixels(r):
 def name_cells(r, font, nr):
     """The first @nr cells of the OLED's top text row in run @r's dump."""
     rows = pixels(r)[:16]
-    x0, w = (1, 6) if font == "6x16" else (0, 8)
-    return [[sum((rows[y][x0 + w*i + x] != ".") << y for y in range(16))
+    w = {"6x16": 6, "8x16": 8, "7x8": 7, "8x8": 8}[font]
+    x0 = 1 if font == "6x16" else 0
+    height = 8 if font.endswith("x8") else 16
+    return [[sum((rows[y][x0 + w*i + x] != ".") << y for y in range(height))
              for x in range(w)] for i in range(nr)]
 
 

@@ -42,8 +42,8 @@ class MinimalUI(display.Case, unittest.TestCase):
             r.report())
 
     def test_ascii_fonts(self):
-        """Both font settings use ASCII 6x16, while the name still opens."""
-        for font in ("6x16", "8x16"):
+        """Every font setting uses ASCII 6x16, while the name still opens."""
+        for font in ("6x16", "8x16", "7x8", "8x8"):
             with self.subTest(font=font):
                 r = fr.run(
                     PROGRAM, names.MOUNT + ["log"],

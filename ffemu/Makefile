@@ -45,7 +45,8 @@ FW_SRCS += image/image.c image/adf.c image/dsk.c image/hfe.c image/img.c
 FW_SRCS += image/da.c image/dummy.c image/mfm.c image/apple2.c
 EMU_FW_SRCS := hw.c stubs.c at32f435.c
 # Display fonts, generated from fonts/ as in src/display/Makefile.
-FONTS := 6x16 8x16
+FONTS := 6x16 8x16 7x8 8x8
+$(OUT)/gen/oled_font_7x8.c $(OUT)/gen/oled_font_8x8.c: font_extent := cyr
 
 # The host half: everything that touches the host operating system.
 HOST_SRCS := ffemu.c cpu.c ssd1306.c fatimg.c rc.c tui.c script.c usbdisk.c
@@ -74,7 +75,7 @@ FW_CFLAGS += -ftrivial-auto-var-init=pattern
 # The minimal test variant uses ASCII fonts and leaves the extras out.
 ifeq ($(minimal_ui),y)
 FW_CFLAGS += -DMINIMAL_UI=1 -DOLED_FONT_ASCII_ONLY=1
-$(OUT)/gen/oled_font_6x16.c $(OUT)/gen/oled_font_8x16.c: font_extent := ascii
+$(patsubst %,$(OUT)/gen/oled_font_%.c,$(FONTS)): font_extent := ascii
 endif
 
 # The firmware's own code calls __sanitizer_cov_trace_pc() at each of its
@@ -125,7 +126,8 @@ $(OUT)/gen/ff_cfg_example.c: $(ROOT)/examples/FF.CFG mk_text.py
 
 $(OUT)/gen/oled_font_%.c: $(ROOT)/fonts/%.png $(ROOT)/scripts/mk_font.py
 	@mkdir -p $(dir $@)
-	$(Q)cd $(dir $@) && $(PYTHON) $(ROOT)/scripts/mk_font.py $< oled_font_$* $(font_extent)
+	$(Q)cd $(dir $@) && $(PYTHON) $(ROOT)/scripts/mk_font.py $< oled_font_$* \
+	    $(font_extent)
 
 $(OUT)/gen/%.o: $(OUT)/gen/%.c
 	@echo CC $*.c
@@ -139,7 +141,7 @@ $(OUT)/fw/gotek/board.o $(OUT)/fw/floppy.o: \
     FW_CFLAGS += -ULEVEL -DLEVEL=LEVEL_logfile
 endif
 
-# As in src/display/Makefile: the main firmware has both fonts.
+# As in src/display/Makefile: the main firmware has every font.
 $(OUT)/fw/display/lcd_stm32f105.o $(OUT)/emu/at32f435.o: \
     FW_CFLAGS += -Dfont_extra=1
 

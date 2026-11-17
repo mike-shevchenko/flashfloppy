@@ -349,7 +349,8 @@ static const struct emu_named show_filename_ext_names[] = {
     { "no", SHOWEXT_no }, { "yes", SHOWEXT_yes }, { "auto", SHOWEXT_auto }
 };
 static const struct emu_named font_names[] = {
-    { "6x16", FONT_6x16 }, { "8x16", FONT_8x16 }
+    { "6x16", FONT_6x16 }, { "8x16", FONT_8x16 },
+    { "7x8", FONT_7x8 }, { "8x8", FONT_8x8 }
 };
 static const struct emu_named notify_flags[] = {
     { "slotnr", NOTIFY_slotnr }
@@ -1018,11 +1019,12 @@ int emu_flash_order_fits(const void *cfg, int oled, unsigned int *taken,
 {
     const struct ff_cfg *f = cfg;
     uint16_t t = f->display_type, order = f->display_order;
+    bool_t small = (f->oled_font == FONT_7x8) || (f->oled_font == FONT_8x8);
     unsigned int i, n = 0;
 
     if (t != DISPLAY_auto)
         oled = !!(t & DISPLAY_oled);
-    *room = oled ? ((t & DISPLAY_oled_64) ? 4 : 2)
+    *room = oled ? (small || (t & DISPLAY_oled_64) ? 4 : 2)
         : (t == DISPLAY_auto) ? 2
         : range_t(unsigned int, (t >> _DISPLAY_lcd_rows) & 7, 2, 4);
     if (order == DORD_default) {
@@ -1031,7 +1033,8 @@ int emu_flash_order_fits(const void *cfg, int oled, unsigned int *taken,
     }
     /* The rows that the parser fills in after those given are blank. */
     for (i = *taken = 0; i < 4; i++, order >>= DORD_shift) {
-        n += (oled && (order & DORD_double)) ? 2 : 1;
+        n += (oled && !(small && (t & DISPLAY_oled_64))
+              && (order & DORD_double)) ? 2 : 1;
         if ((order & 0xf) != 7)
             *taken = n;
     }

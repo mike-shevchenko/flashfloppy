@@ -39,16 +39,17 @@ latin = [
 russian = [ord(bytes([c]).decode("koi8_r")) for c in range(0xc0, 0x100)]
 square = 0x25a1
 
-# The glyphs go into flash packed, each its used rows alone: a header byte,
-# the first used row << 4 | the number of rows - 1, then the rows, each the
-# glyph's width in bits, column 0 first, packed end to end; a glyph equal to
-# an earlier one shares its data. A 16-bit offset per glyph finds it. The
-# struct oled_font of inc/util.h ties the two arrays and the width; the
-# generated file is compiled with the firmware's decls.h included.
+# Each glyph's used rows go after a header byte, the first row << 4 | the
+# number of rows - 1, each row the glyph's width in bits, column 0 first,
+# packed end to end. Identical glyphs share data. Literals and matches of
+# up to 66 bytes within the previous 512 compress the stream; two 12-bit
+# offsets take three bytes. struct oled_font ties the arrays and dimensions;
+# the generated file is compiled with the firmware's decls.h included.
 
 def codes_of(extent):
-    """The code points of a font of extent @extent, "ascii" or "", in the
-    order of its glyphs."""
+    """The code points of a font of extent @extent, in glyph order."""
+    if extent == "cyr":
+        return ascii_codes + russian + [square]
     codes = list(ascii_codes)
     if extent != "ascii":
         codes = low + codes
@@ -87,6 +88,78 @@ def unpack(data, width):
         bits >>= width
     return rows
 
+def lz_compress(data, bounds):
+    """Compress @data at glyph @bounds, retaining offsets to each glyph."""
+    out = bytearray()
+    offsets = {}
+    literals = bytearray()
+
+    def flush():
+        nonlocal literals
+        while literals:
+            part, literals = literals[:128], literals[128:]
+            out.append(len(part) - 1)
+            out.extend(part)
+
+    for start, end in zip(bounds, bounds[1:] + [len(data)]):
+        flush()
+        offsets[start] = len(out)
+        i = start
+        while i < end:
+            best_len, best_distance = 0, 0
+            for distance in range(1, min(i, 512) + 1):
+                length = 0
+                while (length < 66 and i + length < end
+                       and data[i + length] == data[i + length - distance]):
+                    length += 1
+                if length > best_len:
+                    best_len, best_distance = length, distance
+            if best_len >= 3:
+                flush()
+                out.extend((0x80 | ((best_len - 3) << 1)
+                            | ((best_distance - 1) >> 8),
+                            (best_distance - 1) & 0xff))
+                i += best_len
+            else:
+                literals.append(data[i])
+                i += 1
+    flush()
+    return bytes(out), offsets
+
+
+def lz_token(data, pos, history):
+    """Read one token, appending its bytes to @history; return its new pos."""
+    control = data[pos]
+    pos += 1
+    if control & 0x80:
+        length = ((control >> 1) & 0x3f) + 3
+        distance = ((control & 1) << 8 | data[pos]) + 1
+        pos += 1
+        for _ in range(length):
+            history.append(history[-distance])
+    else:
+        length = control + 1
+        history += data[pos:pos + length]
+        pos += length
+    return pos
+
+
+def lz_decompress_glyph(data, offset, width):
+    """The unpacked bytes of the glyph at compressed @offset in @data."""
+    history = bytearray()
+    pos = 0
+    while pos < offset:
+        pos = lz_token(data, pos, history)
+    raw = bytearray()
+    expected = None
+    while expected is None or len(raw) < expected:
+        before = len(history)
+        pos = lz_token(data, pos, history)
+        raw += history[before:]
+        expected = 1 + (((raw[0] & 15) + 1) * width + 7) // 8
+    return raw[:expected]
+
+
 def cols_of(rows, width):
     """A glyph's columns, as rows_of() takes them, from its 16 rows."""
     return [sum(((rows[y] >> (width - 1 - x)) & 1) << (y % 8)
@@ -98,17 +171,25 @@ def read_font(path):
     columns as 16-bit values, bit 0 the top pixel."""
     with open(path) as f:
         text = f.read()
-    width = int(re.search(r"= \{ (\d+),", text).group(1))
+    metrics = re.search(r"= \{ (\d+), (\d+),", text)
+    width, height = int(metrics.group(1)), int(metrics.group(2))
     arrays = {m.group(1): [int(x, 16) for x in re.findall(
         r"0x([0-9a-f]+)", m.group(2))] for m in re.finditer(
         r"(\w+)\[\] aligned\(4\) = \{(.*?)\};", text, re.S)}
     data = bytes(arrays[[k for k in arrays if k.endswith("_data")][0]])
-    offs = arrays[[k for k in arrays if k.endswith("_off")][0]]
-    codes = codes_of("ascii" if len(offs) == len(ascii_codes) + 1 else "")
+    packed_offs = arrays[[k for k in arrays if k.endswith("_off")][0]]
+    extent = {(len(ascii_codes + russian) + 1) * 3 // 2: "cyr",
+              (len(ascii_codes) + 1) * 3 // 2: "ascii"}.get(len(packed_offs), "")
+    codes = codes_of(extent)
+    offs = []
+    for i in range(len(codes)):
+        a, b, c = packed_offs[i // 2 * 3:i // 2 * 3 + 3]
+        offs.append(a | (b & 15) << 8 if i % 2 == 0 else b >> 4 | c << 4)
     assert len(codes) == len(offs)
     glyphs = {}
     for code, off in zip(codes, offs):
-        cols = cols_of(unpack(data[off:], width), width)
+        raw = lz_decompress_glyph(data, off, width)
+        cols = cols_of(unpack(raw, width), width)
         glyphs[code] = [cols[x] | cols[width + x] << 8 for x in range(width)]
     return glyphs
 
@@ -187,15 +268,19 @@ def png_chunk(kind, data):
             + struct.pack(">I", binascii.crc32(kind + data) & 0xffffffff))
 
 
-def write_png(path, glyphs, width, height, tgap):
-    """Write all 256 cells as a checkerboard PNG image of a BDF font."""
-    white = bytes((0xff, 0xff, 0xff))
-    gray = bytes((0xc0, 0xc0, 0xc0))
-    black = bytes((0, 0, 0))
+def write_png(path, glyphs, width, height, tgap, extent=""):
+    """Write all 256 cells, with unoccupied cells of a reduced font clear."""
+    transparent = extent == "cyr"
+    channels = 4 if transparent else 3
+    white = bytes((0xff, 0xff, 0xff, 0xff)[:channels])
+    gray = bytes((0xc0, 0xc0, 0xc0, 0xff)[:channels])
+    black = bytes((0, 0, 0, 0xff)[:channels])
+    clear = bytes((0, 0, 0, 0))
+    allowed = set(codes_of(extent))
     cells = []
     for code in cell_codes():
-        if code is None:
-            cells.append([0] * height)
+        if code is None or code not in allowed:
+            cells.append(None)
             continue
         char = glyphs.get(code, glyphs[square])
         cells.append(char[tgap:tgap + height])
@@ -206,10 +291,14 @@ def write_png(path, glyphs, width, height, tgap):
             for cell_x in range(32):
                 cell = cell_y * 32 + cell_x
                 paper = white if (cell_x + cell_y) % 2 == 0 else gray
+                if cells[cell] is None:
+                    raw += (clear if transparent else paper) * width
+                    continue
                 bits = (cells[cell][y] >> (8 - width)) & ((1 << width) - 1)
                 for x in range(width):
                     raw += black if bits & (1 << (width - 1 - x)) else paper
-    header = struct.pack(">IIBBBBB", 32 * width, 8 * height, 8, 2, 0, 0, 0)
+    header = struct.pack(">IIBBBBB", 32 * width, 8 * height, 8,
+                         6 if transparent else 2, 0, 0, 0)
     with open(path, "wb") as out_f:
         out_f.write(b"\x89PNG\r\n\x1a\n")
         out_f.write(png_chunk(b"IHDR", header))
@@ -225,7 +314,7 @@ def paeth(a, b, c):
 
 
 def read_png_image(path):
-    """Read a non-interlaced 8-bit RGB PNG font image into 256 cell glyphs."""
+    """Read a non-interlaced 8-bit RGB or RGBA PNG into 256 cell glyphs."""
     with open(path, "rb") as in_f:
         png = in_f.read()
     if not png.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -244,24 +333,27 @@ def read_png_image(path):
         if kind == b"IHDR":
             header = struct.unpack(">IIBBBBB", data)
         elif kind == b"tRNS":
-            raise ValueError(path + ": transparency is not supported")
+            raise ValueError(path + ": palette transparency is not supported")
         elif kind == b"IDAT":
             compressed += data
         elif kind == b"IEND":
             break
     if header is None:
         raise ValueError(path + ": no PNG header")
-    image_width, image_height, depth, color, compression, filtering, interlace = header
-    if (depth != 8 or color != 2 or compression != 0 or filtering != 0
+    (image_width, image_height, depth, color, compression, filtering,
+     interlace) = header
+    if (depth != 8 or color not in (2, 6) or compression != 0 or filtering != 0
             or interlace != 0):
-        raise ValueError(path + ": expected a non-interlaced 8-bit RGB PNG")
+        raise ValueError(
+            path + ": expected a non-interlaced 8-bit RGB/RGBA PNG")
     if image_width % 32 or image_height % 8:
         raise ValueError(path + ": expected 32 by 8 cells")
     width, height = image_width // 32, image_height // 8
     if not 1 <= width <= 8 or not 1 <= height <= 16:
         raise ValueError(path + ": unsupported cell size")
+    channels = 3 if color == 2 else 4
     raw = zlib.decompress(bytes(compressed))
-    stride = image_width * 3
+    stride = image_width * channels
     if len(raw) != (stride + 1) * image_height:
         raise ValueError(path + ": wrong PNG pixel data length")
     rows = []
@@ -274,9 +366,9 @@ def read_png_image(path):
         if filter_type > 4:
             raise ValueError(path + ": unknown PNG filter")
         for x in range(stride):
-            left = row[x - 3] if x >= 3 else 0
+            left = row[x - channels] if x >= channels else 0
             above = prior[x]
-            upper_left = prior[x - 3] if x >= 3 else 0
+            upper_left = prior[x - channels] if x >= channels else 0
             if filter_type == 1:
                 row[x] = (row[x] + left) & 0xff
             elif filter_type == 2:
@@ -285,7 +377,8 @@ def read_png_image(path):
                 row[x] = (row[x] + (left + above) // 2) & 0xff
             elif filter_type == 4:
                 row[x] = (row[x] + paeth(left, above, upper_left)) & 0xff
-        pixels = [tuple(row[x:x + 3]) for x in range(0, stride, 3)]
+        pixels = [tuple(row[x:x + channels])
+                  for x in range(0, stride, channels)]
         rows.append(pixels)
         prior = row
     glyphs = {}
@@ -299,9 +392,12 @@ def read_png_image(path):
                 bits = 0
                 for x in range(width):
                     pixel = rows[cell_y * height + y][cell_x * width + x]
-                    if pixel == (0, 0, 0):
+                    alpha = pixel[3] if channels == 4 else 0xff
+                    if alpha == 0:
+                        pass
+                    elif pixel[:3] == (0, 0, 0) and alpha == 0xff:
                         bits |= 1 << (width - 1 - x)
-                    elif pixel != paper:
+                    elif pixel[:3] != paper or alpha != 0xff:
                         raise ValueError(
                             "%s: unexpected color in cell 0x%02x" % (path, cell))
                 glyph.append(bits << (8 - width))
@@ -322,7 +418,7 @@ def read_png_font(path, codes):
                 "mappings in src/charset.c" % (path, cell))
     by_code = {code: cell for cell, code in enumerate(assigned)
                if code is not None}
-    tgap = (16 - height) // 2
+    tgap = 0 if height == 8 else (16 - height) // 2
     bgap = 16 - height - tgap
     glyphs = {}
     for code in codes:
@@ -333,35 +429,46 @@ def read_png_font(path, codes):
     return glyphs, width
 
 
-def write_c(generator, name, codes, glyphs, width):
+def write_c(generator, name, codes, glyphs, width, height):
     """Write the packed C font, keeping the BDF converter's exact layout."""
+    data, raw_offs, starts, segments = bytearray(), [], {}, []
+    for n, code in enumerate(codes):
+        char = list(glyphs.get(code, glyphs[square]))
+        rows = [(c >> (8 - width)) & ((1 << width) - 1) for c in char]
+        packed = pack(rows, width)
+        if packed in starts:
+            raw_offs.append(starts[packed])
+            continue
+        starts[packed] = len(data)
+        raw_offs.append(len(data))
+        segments.append((code, n, packed))
+        data += packed
+    bounds = list(starts.values())
+    compressed, offsets = lz_compress(data, bounds)
+    offs = [offsets[off] for off in raw_offs]
+    packed_offs = bytearray()
+    for i in range(0, len(offs), 2):
+        a = offs[i]
+        b = offs[i + 1] if i + 1 < len(offs) else 0
+        packed_offs += bytes((a & 0xff, (a >> 8 & 15) | (b & 15) << 4, b >> 4))
+    ends = [offsets[start] for start in bounds[1:]] + [len(compressed)]
     with open(name + ".c", "w") as out_f:
         out_f.write("/* Autogenerated by " + generator + " */\n")
         out_f.write("static const uint8_t %s_data[] aligned(4) = {\n" % name)
-        data, offs, starts = bytearray(), [], {}
-        for n, code in enumerate(codes):
-            char = list(glyphs.get(code, glyphs[square]))
-            rows = [(c >> (8 - width)) & ((1 << width) - 1) for c in char]
-            packed = pack(rows, width)
-            if packed in starts:
-                offs.append(starts[packed])
-                continue
-            starts[packed] = len(data)
-            offs.append(len(data))
-            data += packed
-            out_f.write("    " + "".join("0x%02x, " % b for b in packed))
+        for (code, n, _packed), start, end in zip(segments, offsets.values(), ends):
+            out_f.write("    " + "".join("0x%02x, " % b for b in compressed[start:end]))
             if code < 0x80:
                 out_f.write(" /* '%c' %02u */\n" % (code, n))
             else:
                 out_f.write(" /* U+%04X %02u */\n" % (code, n))
         out_f.write("};\n\n")
-        out_f.write("static const uint16_t %s_off[] aligned(4) = {\n" % name)
-        for i in range(0, len(offs), 8):
-            out_f.write("    " + "".join("0x%04x, " % o for o in offs[i:i+8])
+        out_f.write("static const uint8_t %s_off[] aligned(4) = {\n" % name)
+        for i in range(0, len(packed_offs), 12):
+            out_f.write("    " + "".join("0x%02x, " % o for o in packed_offs[i:i+12])
                         + "\n")
         out_f.write("};\n\n")
-        out_f.write("const struct oled_font %s = { %u, %s_off, %s_data };\n"
-                    % (name, width, name, name))
+        out_f.write("const struct oled_font %s = { %u, %u, %s_off, %s_data };\n"
+                    % (name, width, height, name, name))
 
 
 def main(argv):
@@ -372,13 +479,16 @@ def main(argv):
         write_png(argv[3], glyphs, width, height, tgap)
         return
     if len(argv) not in (3, 4):
-        raise SystemExit("usage: mk_font.py INPUT.bdf|INPUT.png OUTPUT [ascii]")
-    codes = codes_of(argv[3] if argv[3:] else "")
+        raise SystemExit(
+            "usage: mk_font.py INPUT.bdf|INPUT.png OUTPUT [ascii|cyr]")
+    extent = argv[3] if argv[3:] else ""
+    codes = codes_of(extent)
     if argv[1].lower().endswith(".png"):
         glyphs, width = read_png_font(argv[1], codes)
     else:
         glyphs, width, height, tgap, bgap = read_bdf(argv[1], codes)
-    write_c(argv[0], argv[2], codes, glyphs, width)
+    write_c(argv[0], argv[2], codes, glyphs, width,
+            8 if extent == "cyr" else 16)
 
 
 if __name__ == "__main__":

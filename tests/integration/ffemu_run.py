@@ -273,8 +273,8 @@ class Case:
 
 
 def font_glyphs(font):
-    """The glyphs of the build's OLED font @font, 6x16 or 8x16, by their code
-    points: each its columns as 16-bit values, bit 0 the top pixel, unpacked
+    """The glyphs of the build's OLED font @font, by their code points: each
+    its columns as 16-bit values, bit 0 the top pixel, unpacked
     from the generated file by scripts/mk_font.py."""
     sys.path.insert(0, os.path.join(ROOT, "scripts"))
     import mk_font

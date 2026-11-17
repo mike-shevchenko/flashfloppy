@@ -51,7 +51,8 @@ def slot_files(count, slot=0):
     return files
 
 
-FONT_W = {"6x16": 6, "8x16": 8}
+FONT_W = {"6x16": 6, "8x16": 8, "7x8": 7, "8x8": 8}
+FONT_H = {"6x16": 16, "8x16": 16, "7x8": 8, "8x8": 8}
 
 
 def oled_glyphs(font):
@@ -70,7 +71,7 @@ def oled_text(pixels, top, font, wide, tall=True):
     unless @tall, from pixel row @top of @pixels, rows of "." and "#", of
     double width too if @wide: each cell as the glyph that it shows, "@" for
     none, such as the phase spinner's."""
-    glyphs, w = oled_glyphs(font), FONT_W[font]
+    glyphs, w, h = oled_glyphs(font), FONT_W[font], FONT_H[font]
     margin, sx = (1 if w == 6 else 0), (2 if wide else 1)
     sy = 2 if tall else 1
     text = ""
@@ -79,7 +80,7 @@ def oled_text(pixels, top, font, wide, tall=True):
         for page in (0, 8):
             for j in range(w):
                 x = sx * (margin + i*w + j)
-                cols.append(sum(
+                cols.append(0 if page >= h else sum(
                     (pixels[top + sy * (page+b)][x] == "#") << b
                     for b in range(8)))
         text += glyphs.get(bytes(cols), "@")
@@ -470,6 +471,56 @@ class SelectorOrder(Case, unittest.TestCase):
                          r.report())
 
 
+class DirectoryTrack(Case, unittest.TestCase):
+    """Row Z combines the current directory with the same short track as C;
+    without an image, the directory has the whole row."""
+
+    def test_lcd(self):
+        rows, r = self.rows(
+            "ffemu", steps(3), "hd44780-16x2", flash=["display-order = Z,N"])
+        self.assertEqual(rows[0], "/" + 11 * " " + "0T03", r.report())
+        self.assertEqual(rows[1], "A" + 15 * " ", r.report())
+
+    def test_apple2(self):
+        rows, r = self.rows(
+            "ffemu-apple2", half_tracks(2), "hd44780-16x2",
+            flash=["display-order = Z,N"], files=DSK)
+        self.assertEqual(rows[0], "/" + 11 * " " + "4T01", r.report())
+
+    def test_wide(self):
+        for font, expected in (("6x16", "/" + 5 * " " + "0T03"),
+                               ("8x16", "/" + 3 * " " + "0T03")):
+            with self.subTest(font=font):
+                r = fr.run(
+                    "ffemu", ["wait 10000 log Name:"] + steps(3)
+                    + ["sleep 500", "dump"],
+                    settings=["display = ssd1306-128x64"],
+                    flash=["display-type = oled-128x64",
+                           "display-order = Zw,N", "oled-font = " + font],
+                    files=PC)
+                self.assertWaits(r, 1)
+                pixels = [line for line in r.lines
+                          if line and set(line) <= set(".#")]
+                self.assertEqual(oled_text(pixels, 0, font, True), expected,
+                                 r.report())
+
+    def test_scrolls_within_remaining_columns(self):
+        r = fr.run(
+            "ffemu", ["wait 15000 log Name:",
+                      "wait 10000 display BCDEFGHIJKL 0T00"],
+            settings=["display = hd44780-16x2"],
+            flash=["display-order = Z,N"],
+            files={"ABCDEFGHIJKLMNOPQR/A.IMG": bytes(737280)})
+        self.assertWaits(r, 2)
+
+    def test_selector_has_no_track(self):
+        selector, mounted, r = SelectorOrder.orders(
+            self, "hd44780-16x2",
+            ["display-order = S,N", "selector-display-order = Z,N"])
+        self.assertEqual(selector[0], "/" + 15 * " ", r.report())
+        self.assertEqual(mounted[0], "001/002  T:00.0 ", r.report())
+
+
 class DoubleWidth(Case, unittest.TestCase):
     """A row given as `w` in display-order, double height and double width on
     an OLED: the left half of the row, magnified. The status row has a layout
@@ -680,56 +731,6 @@ class DoubleWidth(Case, unittest.TestCase):
         self.assertEqual(oled_text(pixels, 0, "6x16", True), "    T:00.0")
 
 
-class DirectoryTrack(Case, unittest.TestCase):
-    """Row Z combines the current directory with the same short track as C;
-    without an image, the directory has the whole row."""
-
-    def test_lcd(self):
-        rows, r = self.rows(
-            "ffemu", steps(3), "hd44780-16x2", flash=["display-order = Z,N"])
-        self.assertEqual(rows[0], "/" + 11 * " " + "0T03", r.report())
-        self.assertEqual(rows[1], "A" + 15 * " ", r.report())
-
-    def test_apple2(self):
-        rows, r = self.rows(
-            "ffemu-apple2", half_tracks(2), "hd44780-16x2",
-            flash=["display-order = Z,N"], files=DSK)
-        self.assertEqual(rows[0], "/" + 11 * " " + "4T01", r.report())
-
-    def test_wide(self):
-        for font, expected in (("6x13", "/" + 5 * " " + "0T03"),
-                               ("8x16", "/" + 3 * " " + "0T03")):
-            with self.subTest(font=font):
-                r = fr.run(
-                    "ffemu", ["wait 10000 log Name:"] + steps(3)
-                    + ["sleep 500", "dump"],
-                    settings=["display = ssd1306-128x64"],
-                    flash=["display-type = oled-128x64",
-                           "display-order = Zw,N", "oled-font = " + font],
-                    files=PC)
-                self.assertWaits(r, 1)
-                pixels = [line for line in r.lines
-                          if line and set(line) <= set(".#")]
-                self.assertEqual(oled_text(pixels, 0, font, True), expected,
-                                 r.report())
-
-    def test_scrolls_within_remaining_columns(self):
-        r = fr.run(
-            "ffemu", ["wait 15000 log Name:",
-                      "wait 10000 display BCDEFGHIJKL 0T00"],
-            settings=["display = hd44780-16x2"],
-            flash=["display-order = Z,N"],
-            files={"ABCDEFGHIJKLMNOPQR/A.IMG": bytes(737280)})
-        self.assertWaits(r, 2)
-
-    def test_selector_has_no_track(self):
-        selector, mounted, r = SelectorOrder.orders(
-            self, "hd44780-16x2",
-            ["display-order = S,N", "selector-display-order = Z,N"])
-        self.assertEqual(selector[0], "/" + 15 * " ", r.report())
-        self.assertEqual(mounted[0], "001/002  T:00.0 ", r.report())
-
-
 class Letters(Case, unittest.TestCase):
     """display-order's rows by their initials, N, S, I, D, C, Z, and B for
     the blank row: the same layouts as the digits, which stay taken, in either
@@ -828,6 +829,71 @@ class FolderScroll(fr.Case, unittest.TestCase):
         osd = {[line for line in part.splitlines() if line.startswith("|")][0]
                for part in r.stdout.split("\nosd: ")[1:]}
         self.assertEqual(osd, {"|ABCDEFGHIJKL         |"}, r.report())
+
+
+class SmallFonts(fr.Case, unittest.TestCase):
+    """The 7x8 and 8x8 fonts: four native rows on 128x32, and four rows of
+    double height on 128x64, where display-order's single rows are doubled."""
+
+    @staticmethod
+    def expected(font, text):
+        """The OSD font draws 0 and O identically; its decoder picks O."""
+        return text.replace("0", "O") if font == "8x8" else text
+
+    def rows(self, font, size, order, tall_rows=()):
+        """Four text rows of an OLED of @size pixels high with @order."""
+        r = fr.run(
+            "ffemu", ["wait 10000 log Name:"] + steps(3)
+            + ["sleep 100", "dump"],
+            settings=["display = ssd1306-128x%d" % size],
+            flash=["display-type = oled-128x%d" % size,
+                   "display-order = " + order, "oled-font = " + font],
+            files=PC)
+        pixels = [line for line in r.lines if line and set(line) <= set(".#")]
+        return [oled_text(pixels, top, font, False,
+                          (size == 64) or (index in tall_rows))
+                for index, top in enumerate(range(0, size, size // 4))], r
+
+    def check_contents(self, font, rows, report):
+        """Name, status, info and directory on their respective rows."""
+        self.assertTrue(rows[0].startswith("A"), report)
+        self.assertIn(self.expected(font, "T:03.0"), rows[1], report)
+        self.assertIn("MFM", rows[2], report)
+        self.assertTrue(rows[3].startswith("/"), report)
+
+    def test_native_and_doubled_rows(self):
+        for font in ("7x8", "8x8"):
+            for size in (32, 64):
+                with self.subTest(font=font, size=size):
+                    rows, r = self.rows(font, size, "N,S,I,D")
+                    self.check_contents(font, rows, r.report())
+
+    def test_explicit_double_height_on_32(self):
+        """A `d` row takes two of the four native 8-pixel rows."""
+        for font in ("7x8", "8x8"):
+            with self.subTest(font=font):
+                rows, r = self.rows(font, 32, "N,Sd,I", (1,))
+                self.assertTrue(rows[0].startswith("A"), r.report())
+                self.assertIn(self.expected(font, "T:03.0"), rows[1],
+                              r.report())
+                self.assertIn("MFM", rows[3], r.report())
+
+    def test_double_width_on_64(self):
+        """A `w` row is doubled in both dimensions, as with a 16-row font."""
+        for font in ("7x8", "8x8"):
+            with self.subTest(font=font):
+                r = fr.run(
+                    "ffemu", ["wait 10000 log Name:", "sleep 100", "dump"],
+                    settings=["display = ssd1306-128x64"],
+                    flash=["display-type = oled-128x64",
+                           "display-order = Nw,S", "oled-font = " + font],
+                    files=PC)
+                pixels = [line for line in r.lines
+                          if line and set(line) <= set(".#")]
+                name = oled_text(pixels, 0, font, True)
+                status = oled_text(pixels, 16, font, False)
+                self.assertTrue(name.startswith("A"), r.report())
+                self.assertIn(self.expected(font, "T:00.0"), status, r.report())
 
 
 class DirSlash(fr.Case, unittest.TestCase):
@@ -1097,6 +1163,24 @@ class FontTest(Case, unittest.TestCase):
                     [row.ljust(width) for row in (
                         "@ABCDEFGHIJKLMNO", "40-4F",
                         "PQRSTUVWXYZ[\\]^_", "50-5F")])
+
+    def test_oled_small(self):
+        """Small fonts show two glyph/label pairs on either OLED size."""
+        for font in ("7x8", "8x8"):
+            for size in (32, 64):
+                with self.subTest(font=font, size=size):
+                    display = "ssd1306-128x%d" % size
+                    pixels = self.oled(
+                        "ffemu", ["key right", "sleep 200", "key right"],
+                        ["display-type = oled-128x%d" % size,
+                         "oled-font = " + font], display=display)
+                    width = len(oled_text(pixels, 0, font, False, size == 64))
+                    self.assertEqual(
+                        [oled_text(pixels, top, font, False, size == 64)
+                         for top in range(0, size, size // 4)],
+                        [SmallFonts.expected(font, row).ljust(width)
+                         for row in ("@ABCDEFGHIJKLMNO", "40-4F",
+                                     "PQRSTUVWXYZ[\\]^_", "50-5F")])
 
     def test_oled_low_codes(self):
         """The low character cells show currency and Central European letters,

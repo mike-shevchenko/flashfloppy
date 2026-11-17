@@ -228,7 +228,7 @@ static bool_t row4_shown(void)
     return FALSE;
 }
 
-/* The current folder's name, which rows 3 and 5 show. */
+/* The current folder's name, which row 3 shows. */
 static char disp_dir[sizeof(cfg.slot.name)];
 
 /* The image and folder names scroll within the columns that their combined
@@ -367,7 +367,7 @@ static void scroll_draw(unsigned int i)
 /* Takes the name's scrolling back to its start: rows 0 and 4's. */
 static void lcd_scroll_reset(void)
 {
-    memset(lcd_scroll.v, 0, 4 * sizeof(lcd_scroll.v[0]));
+    memset(lcd_scroll.v, 0, 2 * DIR_PLACE * sizeof(lcd_scroll.v[0]));
 }
 
 /* Starts the name's scrolling, at @pause and @rate, its first step @ticks
@@ -381,7 +381,7 @@ static void lcd_scroll_init(uint16_t pause, uint16_t rate, int32_t ticks)
     lcd_scroll.rate = rate;
     for (i = 0; i < ARRAY_SIZE(lcd_scroll.v); i++) {
         scroll_init(i);
-        if ((i < 4) || (lcd_scroll.v[i].off == 0))
+        if ((i < 2 * DIR_PLACE) || (lcd_scroll.v[i].off == 0))
             lcd_scroll.v[i].ticks = ticks;
     }
 }
@@ -390,10 +390,11 @@ static void lcd_scroll_init(uint16_t pause, uint16_t rate, int32_t ticks)
  * each in the layout that display-order draws. */
 static unsigned int lcd_scroll_end(void)
 {
-    unsigned int end = lcd_scroll.v[row_wide(0)].end;
+    unsigned int end = lcd_scroll.v[2 * NAME_PLACE + row_wide(0)].end;
 
     if (row4_shown())
-        end = max_t(unsigned int, end, lcd_scroll.v[2 + row_wide(4)].end);
+        end = max_t(unsigned int, end,
+                    lcd_scroll.v[2 * COMBINED_PLACE + row_wide(4)].end);
     return end;
 }
 
@@ -624,7 +625,7 @@ static void write_status_track(unsigned int wide, const struct track_info *ti,
 static void lcd_write_track(const struct track_info *ti, char mode)
 {
     char *p, nr[8];
-    unsigned int w, row, i, cells, width;
+    unsigned int w, row, place, i, cells, width;
 
     write_status_track(FALSE, ti, mode);
     if (row_wide(1))
@@ -640,7 +641,8 @@ static void lcd_write_track(const struct track_info *ti, char mode)
             *p++ = ' ';
         track_short(p, ti, mode, w ? 1 : 2, &width);
         for (row = 4; row <= 5; row++) {
-            i = 2 * ((row == 4) ? COMBINED_PLACE : DIR_TRACK_PLACE) + w;
+            place = (row == 4) ? COMBINED_PLACE : DIR_TRACK_PLACE;
+            i = 2 * place + w;
             lcd_write_spinner(row | (w ? LCD_WIDE : 0),
                 layout_columns(w) - track_combined_width(w)
                 + (p - track_combined[w]), width, ti->phases);
@@ -1690,6 +1692,8 @@ static void read_ff_cfg(void)
         case FFCFG_oled_font:
             ff_cfg.oled_font =
                 !strcmp(opts.arg, "6x16") ? FONT_6x16
+                : !strcmp(opts.arg, "7x8") ? FONT_7x8
+                : !strcmp(opts.arg, "8x8") ? FONT_8x8
                 : FONT_8x16;
             break;
 

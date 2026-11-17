@@ -491,10 +491,15 @@ bool_t lcd_init(void)
 
         if (is_oled_display) {
             oled_height = (ff_cfg.display_type & DISPLAY_oled_64) ? 64 : 32;
+#if defined(font_extra) && !defined(OLED_FONT_ASCII_ONLY)
             oled_font = ff_cfg.oled_font;
-            lcd_columns = (oled_font == FONT_8x16) ? 16
-                : (ff_cfg.display_type & DISPLAY_narrower) ? 16
-                : (ff_cfg.display_type & DISPLAY_narrow) ? 18 : 21;
+#else
+            oled_font = FONT_6x16;
+#endif
+            lcd_columns = (oled_font == FONT_6x16)
+                ? (ff_cfg.display_type & DISPLAY_narrower) ? 16
+                : (ff_cfg.display_type & DISPLAY_narrow) ? 18 : 21
+                : (oled_font == FONT_7x8) ? 18 : 16;
             lcd_rows = 4;
         } else {
             lcd_columns = (ff_cfg.display_type >> _DISPLAY_lcd_columns) & 63;
@@ -593,20 +598,6 @@ fail:
     return FALSE;
 }
 
-#ifdef font_extra
-extern const struct oled_font oled_font_8x16;
-static void oled_glyph_8x16(uint8_t *q, unsigned int g, unsigned int from,
-                            unsigned int to)
-{
-    uint8_t glyph[16], *p = glyph;
-    const unsigned int w = 8;
-
-    oled_font_glyph(&oled_font_8x16, g, glyph);
-    memcpy(q, p+from, to-from);
-    memcpy(q+128, p+w+from, to-from);
-}
-#endif
-
 static unsigned int oled_start_i2c(uint8_t *buf)
 {
     static const uint8_t ssd1306_addr_cmds[] = {
@@ -656,10 +647,13 @@ static unsigned int oled_start_i2c(uint8_t *buf)
 
 static unsigned int ssd1306_prep_buffer(void)
 {
+    bool_t compact = oled_small_font() && (oled_height == 32);
+    unsigned int rows = compact ? 4 : oled_height / 16;
+
     /* If we have completed a complete fill of the OLED display, start a new 
      * I2C transaction. The OLED display seems to occasionally silently lose 
      * a byte and then we lose sync with the display address. */
-    if (i2c_row == (oled_height / 16)) {
+    if (i2c_row == rows) {
         i2c_row++;
         if (has_osd) {
             i2c_stop();
@@ -667,7 +661,7 @@ static unsigned int ssd1306_prep_buffer(void)
         }
     }
 
-    if (i2c_row > (oled_height / 16)) {
+    if (i2c_row > rows) {
         i2c_row = 0;
         refresh_count++;
         i2c_stop();
@@ -679,11 +673,12 @@ static unsigned int ssd1306_prep_buffer(void)
 
     i2c_row++;
 
-    return 256;
+    return compact ? 128 : 256;
 }
 
 static unsigned int sh1106_prep_buffer(void)
 {
+    bool_t compact = oled_small_font() && (oled_height == 32);
     uint8_t *p = buffer;
 
     if (i2c_row == (oled_height / 8)) {
@@ -700,8 +695,8 @@ static unsigned int sh1106_prep_buffer(void)
     }
 
     /* Convert one row of text[] into buffer[] writes. */
-    oled_to_lcd_row(i2c_row/2);
-    if (!(i2c_row & 1))
+    oled_to_lcd_row(compact ? i2c_row : i2c_row/2);
+    if (compact || !(i2c_row & 1))
         memcpy(&buffer[128], &buffer[0], 128);
 
     /* Every 8 rows needs a new page address and hence new I2C transaction. */
