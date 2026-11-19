@@ -51,6 +51,15 @@ $(level) := y
 
 FLAGS += $(MCU_FLAG) $(TARGET_FLAG) $(LEVEL_FLAG)
 
+# The STM32F105's logfile and debug images have no room for the display
+# extras that ffemu shows as well: minimal_ui=y leaves them out (MINIMAL_UI).
+ifeq ($(mcu),stm32f105)
+minimal_ui ?= $(debug)$(logfile)
+endif
+ifeq ($(minimal_ui),y)
+FLAGS += -DMINIMAL_UI=1
+endif
+
 FLAGS += -MMD -MP
 DEPS = *.d
 
