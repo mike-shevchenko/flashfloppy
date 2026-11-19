@@ -325,5 +325,31 @@ class NameStatus(Case, unittest.TestCase):
             rows[0], "000/000 TEST" + 24 * " " + "4T01", r.report())
 
 
+class DirectoryTrack(Case, unittest.TestCase):
+    """Row 5 combines the current directory with the same short track as 4;
+    without an image, the directory has the whole row."""
+
+    def test_lcd(self):
+        rows, r = self.rows(
+            "ffemu", steps(3), "hd44780-16x2", flash=["display-order = 5,0"])
+        self.assertEqual(rows[0], "/" + 11 * " " + "0T03", r.report())
+        self.assertEqual(rows[1], "A" + 15 * " ", r.report())
+
+    def test_apple2(self):
+        rows, r = self.rows(
+            "ffemu-apple2", half_tracks(2), "hd44780-16x2",
+            flash=["display-order = 5,0"], files=DSK)
+        self.assertEqual(rows[0], "/" + 11 * " " + "4T01", r.report())
+
+    def test_scrolls_within_remaining_columns(self):
+        r = fr.run(
+            "ffemu", ["wait 15000 log Name:",
+                      "wait 10000 display BCDEFGHIJKL 0T00"],
+            settings=["display = hd44780-16x2"],
+            flash=["display-order = 5,0"],
+            files={"ABCDEFGHIJKLMNOPQR/A.IMG": bytes(737280)})
+        self.assertWaits(r, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
