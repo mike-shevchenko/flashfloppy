@@ -53,11 +53,11 @@ class Apple2Mode(fr.Case, unittest.TestCase):
             (["key phase-in"] * 2, "40 3f 06"), (["key write"], "41 3f 06")])
 
     def test_lcd(self):
-        """The phases on as their digits, dots for the others, then the
-        track after `T`, `W` while writing."""
+        """The track, then the four phase bits as one uppercase hex digit;
+        `W` before the track while writing."""
         self.check("hd44780-16x2", [
-            ([], ".... T00"), (["key phase-in"] * 2, ".1.. T00"),
-            (["key phase-in"] * 2, "..2. T01"), (["key write"], "..2. W01")])
+            ([], "T:00.0"), (["key phase-in"] * 2, "T:00.2"),
+            (["key phase-in"] * 2, "T:01.4"), (["key write"], "W T:01.4")])
 
 
 if __name__ == "__main__":

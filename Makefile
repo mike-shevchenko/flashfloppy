@@ -56,10 +56,14 @@ apple2-bootloader-%: FORCE
 
 all-%: FORCE prod-% debug-% logfile-% ;
 
+ffemu-minimal-ui: FORCE
+	$(MAKE) -C $(ROOT)/ffemu O=$(O) TARGET=apple2 minimal_ui=y \
+	    NAME=ffemu-minimal-ui OUT=$(abspath $(O))/out/ffemu/minimal-ui
+
 ffemu-%: FORCE
 	$(MAKE) -C $(ROOT)/ffemu O=$(O) TARGET=$*
 
-ffemu: FORCE ffemu-shugart ffemu-apple2 ffemu-multi
+ffemu: FORCE ffemu-shugart ffemu-apple2 ffemu-multi ffemu-minimal-ui
 
 unit-tests: FORCE
 	$(MAKE) -C $(ROOT)/tests O=$(O) all

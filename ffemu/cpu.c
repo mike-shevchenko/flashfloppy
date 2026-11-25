@@ -42,7 +42,6 @@ volatile unsigned int emu_in_fdd;
 volatile unsigned int emu_in_step;
 volatile int emu_mcu;
 volatile int emu_fdd_type;
-volatile int emu_oled_synth_8x16;
 
 char log_ring[LOG_SIZE];
 volatile unsigned int log_head;

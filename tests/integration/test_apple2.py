@@ -1,6 +1,5 @@
 """An Apple2 host stepping the head: the apple2 firmware shows the phases
-that the host holds on and the head's position in half tracks, on an LED and
-on an LCD."""
+that the host holds on and the image's track, on an LED and on an LCD."""
 
 import unittest
 
@@ -17,8 +16,8 @@ class Steps(fr.Case, unittest.TestCase):
     def check_steps(self, display, steps):
         kind = "segments" if display.startswith("tm1651") else "display"
         cmds = ["wait 10000 log Name: 'TEST'"]
-        for nr, shown in steps:
-            cmds += ["key phase-in"] * nr
+        for keys, shown in steps:
+            cmds += keys
             cmds.append("wait 3000 %s %s" % (kind, shown))
         r = fr.run(
             "ffemu-apple2", cmds, settings=["display = " + display],
@@ -26,18 +25,30 @@ class Steps(fr.Case, unittest.TestCase):
         self.assertWaits(r, 1 + len(steps))
 
     def test_led(self):
-        """The phases on the first digit's lower segments, 1 the left
-        one and 2 the middle one, then the position."""
-        self.check_steps(
-            "tm1651-3digit",
-            [(0, "00 3f 3f"), (2, "10 3f 06"), (2, "40 3f 5b")])
+        """The phases on the first digit's lower segments, 1 the left one and
+        2 the middle one, then the position."""
+        self.check_steps("tm1651-3digit", [
+            ([], "00 3f 3f"), (["key phase-in"] * 2, "10 3f 3f"),
+            (["key phase-in"] * 2, "40 3f 06")])
+
+    def test_led_three_digits(self):
+        """A position of three digits takes all three digits, the phases
+        left out."""
+        r = fr.run(
+            "ffemu-apple2", ["wait 10000 log Name: 'TEST'"]
+            + ["key phase-in", "sleep 20"] * 400
+            + ["wait 3000 segments 06 3f 3f"],
+            settings=["display = tm1651-3digit"], files=DSK)
+        self.assertWaits(r, 2)
 
     def test_lcd(self):
-        """The phases on as their digits, dots for the others, then the
-        position."""
-        self.check_steps(
-            "hd44780-16x2",
-            [(0, ".... T00"), (2, ".1.. T01"), (2, "..2. T02")])
+        """The track, then the four phase bits as one uppercase hex digit."""
+        self.check_steps("hd44780-16x2", [
+            ([], "T:00.0"), (["key phase-in"], "T:00.3"),
+            (["key phase-in"], "T:00.2"), (["key phase-in"], "T:00.6"),
+            (["key phase-in"], "T:01.4"), (["key phase-in"], "T:01.C"),
+            (["key phase-in"], "T:01.8"), (["key phase-in"], "T:01.9"),
+            (["key phase-in"], "T:02.1"), (["key release"], "T:02.0")])
 
 
 if __name__ == "__main__":
