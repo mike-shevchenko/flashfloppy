@@ -234,7 +234,7 @@ TEST(floppy_apple2_phases_shown)
     clock_run_ms(3);
     CHECK_EQ(apple2_phases, 6);
     /* Deselected: no phases, no steps. */
-    pin_set(PA, 0, TRUE);
+    pin_set(PA, /*pin=*/0, TRUE);
     clock_run_ms(3);
     CHECK_EQ(apple2_phases, 0);
     seek(4);

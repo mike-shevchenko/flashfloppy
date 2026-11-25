@@ -37,12 +37,36 @@ class Apple2Mode(fr.Case, unittest.TestCase):
         kind = "segments" if display.startswith("tm1651") else "display"
         cmds = ["wait 10000 log Name: 'TEST'"]
         for keys, shown in steps:
-            cmds += keys
+            cmds += keys + ["sleep 20"]
             cmds.append("wait 3000 %s %s" % (kind, shown))
         r = fr.run(
             "ffemu-multi", cmds,
             settings=["display = " + display, "fdd-type = apple2"], files=DSK)
         self.assertWaits(r, 1 + len(steps))
+
+    def pixels(self, order, font):
+        r = fr.run(
+            "ffemu-multi", ["wait 10000 log Name:", "key phase-in",
+                            "sleep 500", "dump"],
+            settings=["display = ssd1306-128x64", "fdd-type = apple2"],
+            flash=["display-type = oled-128x64", "display-order = " + order,
+                   "oled-font = " + font],
+            files=DSK)
+        self.assertWaits(r, 1)
+        return [line for line in r.lines if line and set(line) <= set(".#")]
+
+    def test_wide_spinner(self):
+        """The default wide spinner is enlarged in both dimensions."""
+        for font, x, w, wide_x in (
+                ("6x16", 85, 12, 98), ("8x16", 104, 16, 96)):
+            with self.subTest(font=font):
+                normal = self.pixels("0,1", font)
+                wide = self.pixels("Sw,Cw", font)
+                spinner = [row[x:x+w] for row in normal[16:32]]
+                scaled = ["".join(c * 2 for c in row)
+                          for row in spinner for _ in range(2)]
+                self.assertEqual(
+                    [row[wide_x:wide_x+2*w] for row in wide[0:32]], scaled)
 
     def test_led(self):
         """The phases on the first digit's lower segments, 1 the left one
@@ -53,8 +77,7 @@ class Apple2Mode(fr.Case, unittest.TestCase):
             (["key phase-in"] * 2, "40 3f 06"), (["key write"], "41 3f 06")])
 
     def test_lcd(self):
-        """The track, then the four phase bits as one uppercase hex digit;
-        `W` before the track while writing."""
+        """The track, then the phase bits as one hex digit; `W` while writing."""
         self.check("hd44780-16x2", [
             ([], "T:00.0"), (["key phase-in"] * 2, "T:00.2"),
             (["key phase-in"] * 2, "T:01.4"), (["key write"], "W T:01.4")])

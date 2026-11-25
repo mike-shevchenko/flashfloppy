@@ -56,6 +56,7 @@ apple2-bootloader-%: FORCE
 
 all-%: FORCE prod-% debug-% logfile-% ;
 
+# Build ffemu in the minimal_ui mode to allow testing the affected features.
 ffemu-minimal-ui: FORCE
 	$(MAKE) -C $(ROOT)/ffemu O=$(O) TARGET=apple2 minimal_ui=y \
 	    NAME=ffemu-minimal-ui OUT=$(abspath $(O))/out/ffemu/minimal-ui

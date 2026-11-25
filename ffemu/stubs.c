@@ -1292,7 +1292,7 @@ const char *emu_fw_target(void)
 #elif TARGET == TARGET_multi
     return "Multi";
 #else
-    return "Step/Dir";
+    return "Shugart";
 #endif
 }
 

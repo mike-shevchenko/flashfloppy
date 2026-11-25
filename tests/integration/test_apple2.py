@@ -17,7 +17,7 @@ class Steps(fr.Case, unittest.TestCase):
         kind = "segments" if display.startswith("tm1651") else "display"
         cmds = ["wait 10000 log Name: 'TEST'"]
         for keys, shown in steps:
-            cmds += keys
+            cmds += keys + ["sleep 20"]
             cmds.append("wait 3000 %s %s" % (kind, shown))
         r = fr.run(
             "ffemu-apple2", cmds, settings=["display = " + display],
@@ -28,8 +28,11 @@ class Steps(fr.Case, unittest.TestCase):
         """The phases on the first digit's lower segments, 1 the left one and
         2 the middle one, then the position."""
         self.check_steps("tm1651-3digit", [
-            ([], "00 3f 3f"), (["key phase-in"] * 2, "10 3f 3f"),
-            (["key phase-in"] * 2, "40 3f 06")])
+            ([], fr.segments([0] + fr.led_cells("00"))),
+            (["key phase-in"] * 2,
+             fr.segments([fr.SEG_BL] + fr.led_cells("00"))),
+            (["key phase-in"] * 2,
+             fr.segments([fr.SEG_M] + fr.led_cells("01")))])
 
     def test_led_three_digits(self):
         """A position of three digits takes all three digits, the phases
@@ -37,7 +40,7 @@ class Steps(fr.Case, unittest.TestCase):
         r = fr.run(
             "ffemu-apple2", ["wait 10000 log Name: 'TEST'"]
             + ["key phase-in", "sleep 20"] * 400
-            + ["wait 3000 segments 06 3f 3f"],
+            + ["wait 3000 segments " + fr.led_segments("100")],
             settings=["display = tm1651-3digit"], files=DSK)
         self.assertWaits(r, 2)
 

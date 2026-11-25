@@ -279,7 +279,7 @@ void led_7seg_write_string(const char *p)
         } else if (c == '?') {
             d[i] = SEG_T | SEG_TR | SEG_BL | SEG_M;
         } else if (TARGET_SUPPORTS_APPLE2 && (c & 0x80)) {
-            /* Segments `a` to `g` as bits 0 to 6: the Apple2 phase digit. */
+            /* The low seven bits are the Apple2 phase digit's segment mask. */
             d[i] = c & 0x7f;
         } else {
             d[i] = 0;
