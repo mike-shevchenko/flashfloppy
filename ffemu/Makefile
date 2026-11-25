@@ -4,7 +4,7 @@
 #
 # The program is built as $(O)/out/ffemu/$(TARGET)/ffemu-$(TARGET):
 # ffemu-shugart runs the shugart firmware, ffemu-apple2 the apple2 one, and
-# ffemu-multi the multi firmware, with its Step/Dir and Apple2 modes. O
+# ffemu-multi the multi firmware, with its Shugart and Apple2 modes. O
 # defaults to the top of the source tree, as in the main Makefile.
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))..)

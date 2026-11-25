@@ -109,7 +109,7 @@ extern volatile unsigned int emu_in_step;
  * the pins of the standard wiring and phase 1 on pin 32 as well, as a cable
  * made for Oleg Odintsov's Gotek firmware 307 (gotek-sa390 at
  * https://svn.code.sf.net/p/agat-hardware/code) too has it. */
-#define EMU_FDD_TYPE_step_dir 0
+#define EMU_FDD_TYPE_shugart 0
 #define EMU_FDD_TYPE_apple2   1
 extern volatile int emu_fdd_type;
 

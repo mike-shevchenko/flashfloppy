@@ -91,7 +91,7 @@ void emu_irq_vector(unsigned int nr)
     case 27: IRQ_27(); break; /* TIM1 capture: WDATA, in Apple2 mode */
 #endif
 #if (TARGET == TARGET_shugart) || (TARGET == TARGET_multi)
-    case 28: IRQ_28(); break; /* TIM2: STEP, in Step/Dir mode */
+    case 28: IRQ_28(); break; /* TIM2: STEP, in Shugart mode */
 #endif
     case 43: IRQ_43(); break; /* the floppy interface's soft IRQ */
     default:
@@ -151,10 +151,10 @@ uint32_t emu_stk_now(void)
 
 /* The floppy interface: port A and port B pins. */
 #define PA_SEL0     0
-#define PA_STEP     1  /* Step/Dir; Apple2 phase 3 */
+#define PA_STEP     1  /* Shugart; Apple2 phase 3 */
 #define PA_PHA1     9  /* Apple2, as in the release */
 #define PA_PHA0    10  /* Apple2, as in the release */
-#define PB_DIR      0  /* Step/Dir; Apple2 phase 2 */
+#define PB_DIR      0  /* Shugart; Apple2 phase 2 */
 #define PB_WGATE    1  /* WGATE in QFN32; Apple2 write request */
 #define PB_SIDE     4
 #define PB_MOTOR   12  /* on a board with KC30 header type 2, else PB15 */
