@@ -216,6 +216,23 @@ void floppy_cancel(void)
     drive_change_output(drv, outp_dskchg, TRUE);
 }
 
+#if TARGET == TARGET_multi
+void floppy_detect_interface(unsigned int ms)
+{
+    if (ff_cfg.interface == FINTF_APPLE2) {
+        apple2_mode = TRUE;
+    } else if (ff_cfg.interface < ARRAY_SIZE(fintfs)) {
+        apple2_mode = FALSE;
+    } else {
+        /* auto, jc and values unknown to this firmware all permit detection. */
+        apple2_detect(ms);
+        return;
+    }
+
+    delay_ms(ms);
+}
+#endif
+
 void floppy_set_fintf_mode(void)
 {
     static const char * const fintf_name[] = {
@@ -236,9 +253,18 @@ void floppy_set_fintf_mode(void)
     uint32_t old_active;
     uint8_t mode = ff_cfg.interface;
 
-    /* Default to JC if the interface type is unknown to this firmware. */
-    if (mode >= ARRAY_SIZE(fintfs))
-        mode = FINTF_JC;
+    if (mode >= ARRAY_SIZE(fintfs)) {
+#if TARGET == TARGET_multi
+        if (mode == FINTF_APPLE2) {
+            /* Pins 2 and 34 are disconnected on an Apple2 cable. */
+            mode = FINTF_SHUGART;
+        } else if (mode != FINTF_JC) {
+            /* auto and unknown values use the target's automatic fallback. */
+            mode = FINTF_AUTO_FALLBACK;
+        } else
+#endif
+            mode = FINTF_JC;
+    }
 
     if (mode == FINTF_JC) {
         /* Jumper JC selects default floppy interface configuration:
