@@ -57,6 +57,11 @@ void delay_ticks(unsigned int ticks)
     clock_set(now + ticks);
 }
 
+void delay_ms(unsigned int ms)
+{
+    delay_ticks(time_ms(ms));
+}
+
 uint32_t emu_stk_now(void)
 {
     return -now & STK_MASK;
@@ -269,7 +274,7 @@ void board_jc_set_mode(unsigned int mode)
 
 bool_t board_jc_strapped(void)
 {
-    return FALSE;
+    return (mcu_package == MCU_QFN32) && !(emu_gpio[0].idr & (1u << 9));
 }
 
 void IRQ_rotary(void)

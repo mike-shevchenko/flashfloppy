@@ -251,7 +251,10 @@ static const struct emu_named interface_names[] = {
     { "jc", FINTF_JC }, { "shugart", FINTF_SHUGART },
     { "ibmpc", FINTF_IBMPC }, { "ibmpc-hdout", FINTF_IBMPC_HDOUT },
     { "jppc", FINTF_JPPC }, { "jppc-hdout", FINTF_JPPC_HDOUT },
-    { "akai-s950", FINTF_JPPC_HDOUT }, { "amiga", FINTF_AMIGA }
+    { "akai-s950", FINTF_JPPC_HDOUT }, { "amiga", FINTF_AMIGA },
+#if TARGET == TARGET_multi
+    { "auto", FINTF_AUTO }, { "apple2", FINTF_APPLE2 }
+#endif
 };
 static const struct emu_named host_names[] = {
     { "acorn", HOST_acorn }, { "akai", HOST_akai }, { "casio", HOST_casio },

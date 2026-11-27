@@ -28,6 +28,9 @@ extern bool_t apple2_mode;
 /* Watches the phase inputs for @ms milliseconds, and sets apple2_mode if an
  * Apple2 host is driving them. Takes the place of the 5v settle delay. */
 void apple2_detect(unsigned int ms);
+/* Applies interface=apple2/auto/jc before floppy_init(). Fixed and forced
+ * modes retain the same 5v settle delay without sampling the phases. */
+void floppy_detect_interface(unsigned int ms);
 #else
 #define apple2_mode FALSE
 #endif
@@ -53,9 +56,15 @@ void apple2_detect(unsigned int ms);
 #define FINTF_AMIGA       4
 #define FINTF_JPPC        5
 
-/* Factory default: Beta Disk and IBM PC hosts need no JC in multi. */
+/* Factory default: multi detects Apple2, then uses IBM PC on
+ * STM32F105/AT32F415 and JC on AT32F435. Other targets retain JC. */
 #if TARGET == TARGET_multi
-#define FINTF_DEFAULT FINTF_IBMPC
+#define FINTF_DEFAULT FINTF_AUTO
+#if MCU == MCU_stm32f105
+#define FINTF_AUTO_FALLBACK FINTF_IBMPC
+#else
+#define FINTF_AUTO_FALLBACK FINTF_JC
+#endif
 #else
 #define FINTF_DEFAULT FINTF_JC
 #endif

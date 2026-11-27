@@ -52,10 +52,20 @@ TEST(floppy_default_interface)
     board_reset();
     floppy_set_fintf_mode();
 #if TARGET == TARGET_multi
-    CHECK(ff_cfg.interface == FINTF_IBMPC);
+    CHECK(ff_cfg.interface == FINTF_AUTO);
     CHECK(log_has("Intf IBM PC"));
-    /* An explicit JC setting still follows the strap. */
+
+    /* On 415/105 auto ignores JC; explicit JC follows it in both positions. */
+    ft_fw_log_clear();
+    pin_set(PA, 9, FALSE);
+    floppy_set_fintf_mode();
+    CHECK(log_has("Intf IBM PC"));
+    ft_fw_log_clear();
     ff_cfg.interface = FINTF_JC;
+    floppy_set_fintf_mode();
+    CHECK(log_has("Intf IBM PC"));
+    ft_fw_log_clear();
+    pin_set(PA, 9, TRUE);
     floppy_set_fintf_mode();
     CHECK(log_has("Intf Shugart"));
 #else
@@ -65,6 +75,42 @@ TEST(floppy_default_interface)
 }
 
 #if TARGET == TARGET_multi /* detection at boot */
+
+TEST(floppy_interface_selection)
+{
+    unsigned int i;
+
+    /* Every fixed Shugart-family interface suppresses Apple2 detection. */
+    for (i = 0; i <= FINTF_JPPC; i++) {
+        drive_reset();
+        board_reset();
+        set_phases(0, FALSE);
+        ff_cfg.interface = i;
+        floppy_detect_interface(20);
+        CHECK(!apple2_mode);
+        CHECK(time_now() == time_ms(20));
+    }
+
+    /* Forced Apple2 needs no phase samples, but keeps the settling delay. */
+    drive_reset();
+    board_reset();
+    ff_cfg.interface = FINTF_APPLE2;
+    floppy_detect_interface(20);
+    CHECK(apple2_mode);
+    CHECK(time_now() == time_ms(20));
+
+    /* Unknown values, as well as auto and jc, permit detection. */
+    for (i = 0; i < 3; i++) {
+        drive_reset();
+        board_reset();
+        set_phases(0, FALSE);
+        ff_cfg.interface = (i == 0) ? FINTF_AUTO
+            : (i == 1) ? FINTF_JC : FINTF_JPPC + 1;
+        floppy_detect_interface(20);
+        CHECK(apple2_mode);
+        CHECK(time_now() == time_ms(20));
+    }
+}
 
 TEST(floppy_detect_apple2_at_rest)
 {
