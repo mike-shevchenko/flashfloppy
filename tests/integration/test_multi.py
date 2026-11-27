@@ -11,12 +11,25 @@ DSK = {"TEST.DSK": bytes(35 * 4096)}
 
 class Detection(fr.Case, unittest.TestCase):
 
-    def check_banner(self, fdd_type, log, banner):
+    def check_banner(self, fdd_type, log, banner, interface="IBM PC", flash=()):
+        commands = []
+        if log:
+            commands.append("wait 10000 log " + log)
+        commands += [
+            "wait 10000 log Intf " + interface,
+            "key remove", "wait 5000 segments " + banner]
+        r = fr.run(
+            "ffemu-multi", commands,
+            settings=["display = tm1651-3digit", "fdd-type = " + fdd_type],
+            flash=flash)
+        self.assertWaits(r, 3 if log else 2)
+        return r
+
+    def test_default_is_auto(self):
         r = fr.run(
             "ffemu-multi",
-            ["wait 10000 log " + log, "wait 10000 log Intf IBM PC",
-             "key remove", "wait 5000 segments " + banner],
-            settings=["display = tm1651-3digit", "fdd-type = " + fdd_type])
+            ["wait 10000 log CFG: Factory Defaults",
+             "wait 10000 log Apple2 on", "wait 10000 log Intf IBM PC"])
         self.assertWaits(r, 3)
 
     def test_apple2_host(self):
@@ -25,6 +38,67 @@ class Detection(fr.Case, unittest.TestCase):
 
     def test_shugart_host(self):
         self.check_banner("shugart", "Apple2 off", "71 40 71")
+
+    def test_jc_also_detects_apple2(self):
+        self.check_banner(
+            "apple2", "Apple2 on", "77 40 5b", interface="Shugart",
+            flash=["interface = jc"])
+
+    def test_forced_apple2_without_phases(self):
+        r = self.check_banner(
+            "shugart", None, "77 40 5b", interface="Shugart",
+            flash=["interface = apple2"])
+        self.assertNotIn("Apple2 on (", r.stdout)
+        self.assertNotIn("Apple2 off (", r.stdout)
+
+    def test_fixed_ibmpc_ignores_apple2_phases(self):
+        r = fr.run(
+            "ffemu-multi", ["wait 10000 log Intf IBM PC"],
+            settings=["fdd-type = apple2"], flash=["interface = ibmpc"])
+        self.assertWaits(r, 1)
+        self.assertNotIn("Apple2 on (", r.stdout)
+        self.assertNotIn("Apple2 off (", r.stdout)
+
+    def test_unknown_interface_is_auto(self):
+        self.check_banner(
+            "apple2", "Apple2 on", "77 40 5b",
+            flash=["interface = 0x06"])
+
+    def test_interface_change_resets(self):
+        r = fr.run(
+            "ffemu-multi",
+            ["sleep 6000", "wait 10000 log Intf Shugart", "key remove",
+             "wait 5000 segments 77 40 5b", "flash"],
+            settings=["display = tm1651-3digit", "fdd-type = shugart"],
+            files={"FF.CFG": "interface = apple2\n"})
+        self.assertWaits(r, 2)
+        self.assertNotIn("Apple2 on (", r.stdout)
+        self.assertNotIn("Apple2 off (", r.stdout)
+        self.assertEqual(
+            r.flash().get("interface"), "apple2", r.report())
+
+    def test_explicit_auto_is_parsed(self):
+        r = fr.run(
+            "ffemu-multi",
+            ["sleep 6000", "wait 10000 log Apple2 on", "key remove",
+             "wait 5000 segments 77 40 5b", "flash"],
+            settings=["display = tm1651-3digit", "fdd-type = apple2"],
+            flash=["interface = ibmpc"],
+            files={"FF.CFG": "interface = auto\n"})
+        self.assertWaits(r, 2)
+        self.assertEqual(r.flash().get("interface"), "auto", r.report())
+
+    def test_explicit_jc_is_parsed(self):
+        r = fr.run(
+            "ffemu-multi",
+            ["sleep 6000", "wait 10000 log Apple2 off",
+             "wait 10000 log Intf Shugart", "key remove",
+             "wait 5000 segments 71 40 71", "flash"],
+            settings=["display = tm1651-3digit", "fdd-type = shugart"],
+            flash=["interface = apple2"],
+            files={"FF.CFG": "interface = jc\n"})
+        self.assertWaits(r, 3)
+        self.assertEqual(r.flash().get("interface"), "jc", r.report())
 
 
 class Apple2Mode(fr.Case, unittest.TestCase):

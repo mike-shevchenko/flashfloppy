@@ -33,7 +33,9 @@ struct packed ff_cfg {
      * by merging old and new structures of different sizes. */
     uint8_t size;
     /* interface: FINTF_* interface mode */
-#define FINTF_JC 255 /* mode specified by jumper JC */
+#define FINTF_APPLE2 253 /* multi: force Apple2, without detection */
+#define FINTF_AUTO   254 /* multi: detect Apple2, then the automatic fallback */
+#define FINTF_JC     255 /* detect Apple2 in multi, then use jumper JC */
     uint8_t interface; /* FINTF_* interface mode */
     char da_report_version[16]; 
     uint8_t autoselect_file_secs;

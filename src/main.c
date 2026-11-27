@@ -1561,10 +1561,19 @@ static void read_ff_cfg(void)
         case FFCFG_interface: {
             const static uint8_t v[] = {
                 FINTF_SHUGART, FINTF_IBMPC, FINTF_IBMPC_HDOUT, FINTF_JPPC,
-                FINTF_JPPC_HDOUT, FINTF_JPPC_HDOUT, FINTF_AMIGA, FINTF_JC };
-            ff_cfg.interface = v[word_index(
-                opts.arg, "shugart\0ibmpc\0ibmpc-hdout\0jppc\0jppc-hdout\0"
-                "akai-s950\0amiga\0")];
+                FINTF_JPPC_HDOUT, FINTF_JPPC_HDOUT, FINTF_AMIGA, FINTF_JC,
+#if TARGET == TARGET_multi
+                FINTF_AUTO, FINTF_APPLE2, FINTF_AUTO
+#endif
+            };
+            const static char names[] =
+                "shugart\0ibmpc\0ibmpc-hdout\0jppc\0jppc-hdout\0"
+                "akai-s950\0amiga\0"
+#if TARGET == TARGET_multi
+                "jc\0auto\0apple2\0"
+#endif
+                ;
+            ff_cfg.interface = v[word_index(opts.arg, names)];
             break;
         }
 
@@ -1969,6 +1978,12 @@ static void read_ff_cfg(void)
 
 static void process_ff_cfg_opts(const struct ff_cfg *old)
 {
+#if TARGET == TARGET_multi
+    /* The host protocol, its pins and interrupts are selected at boot. */
+    if (ff_cfg.interface != old->interface)
+        system_reset();
+#endif
+
     /* chgrst, motor-delay: Reset EXTI handlers. */
     if ((ff_cfg.motor_delay != old->motor_delay)
         || (ff_cfg.chgrst != old->chgrst)) {
@@ -4140,7 +4155,8 @@ int main(void)
     board_init();
     console_crash_on_input();
 #if TARGET == TARGET_multi
-    apple2_detect(200); /* 5v settle */
+    flash_ff_cfg_read();
+    floppy_detect_interface(200); /* 5v settle */
 #else
     delay_ms(200); /* 5v settle */
 #endif
@@ -4154,7 +4170,9 @@ int main(void)
 
     speaker_init();
 
+#if TARGET != TARGET_multi
     flash_ff_cfg_read();
+#endif
 
     floppy_init();
 
